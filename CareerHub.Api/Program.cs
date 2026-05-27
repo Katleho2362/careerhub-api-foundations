@@ -11,6 +11,8 @@ builder.Services.AddControllers()
 
 builder.Services.AddOpenApi();
 
+builder.Services.AddProblemDetails(); // Registers standard Problem Details error responses
+
 var app = builder.Build();
 
 if (app.Environment.IsDevelopment())
@@ -18,6 +20,12 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi();
     app.MapScalarApiReference();
 }
+
+// Global exception handling
+app.UseExceptionHandler();
+
+// Standard ProblemDetails for status code errors
+app.UseStatusCodePages();
 
 app.UseHttpsRedirection();
 
