@@ -15,8 +15,8 @@ public class JobsController : ControllerBase
         return Ok(JobListingStore.Jobs);
     }
 
-    [HttpGet("{id:int}")]
-    public async Task<IActionResult> GetJobById(int id)
+    [HttpGet("{id:guid}")]
+    public async Task<IActionResult> GetJobById(Guid id)
     {
         await Task.CompletedTask;
 
