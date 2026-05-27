@@ -1,20 +1,26 @@
-using CareerHub.Api.Stores;
+using System.Text.Json.Serialization;
+using Scalar.AspNetCore;
 
-var builder = WebApplication.CreateBuilder(args);  // creates the API application builder 
+var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddControllers();
-builder.Services.AddOpenApi();  // OpenAPI Documentation to test (scalar)
+builder.Services.AddControllers()
+    .AddJsonOptions(options =>
+    {
+        options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
+    });
 
+builder.Services.AddOpenApi();
 
-var app = builder.Build();   // builds the final app 
+var app = builder.Build();
 
-if (app.Environment.IsDevelopment())  // enable OpenApi only in development mode 
+if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
+    app.MapScalarApiReference();
 }
 
 app.UseHttpsRedirection();
-// Maps controller routes such as GET /jobs and GET /jobs/{id}
+
 app.MapControllers();
 
 app.Run();
