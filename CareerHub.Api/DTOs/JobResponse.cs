@@ -1,9 +1,8 @@
 using CareerHub.Api.Enums;
 
-namespace CareerHub.Api.Models;
+namespace CareerHub.Api.DTOs;
 
-// Information that our job posting will contain
-public class JobListing
+public class JobResponse
 {
     public Guid Id { get; set; }
 
@@ -21,9 +20,7 @@ public class JobListing
 
     public decimal? SalaryMax { get; set; }
 
-    // Set by the server when the job is created
     public DateTime PostedAt { get; set; }
 
-    // Determines whether the job is active
-    public bool IsActive { get; set; }
+    public string SalaryDisplay { get; set; } = string.Empty;
 }

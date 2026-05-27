@@ -1,35 +1,34 @@
-using CareerHub.Api.Stores;
+using System.Text.Json.Serialization;
+using Scalar.AspNetCore;
 
-var builder = WebApplication.CreateBuilder(args);  // creates the API application builder 
+var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddOpenApi();  // OpenAPI Documentation to test (scalar)
+builder.Services.AddControllers()
+    .AddJsonOptions(options =>
+    {
+        options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
+    });
 
-var app = builder.Build();   // builds the final app 
+builder.Services.AddOpenApi();
 
-if (app.Environment.IsDevelopment())  // enable OpenApi only in development mode 
+builder.Services.AddProblemDetails(); // Registers standard Problem Details error responses
+
+var app = builder.Build();
+
+if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
+    app.MapScalarApiReference();
 }
+
+// Global exception handling
+app.UseExceptionHandler();
+
+// Standard ProblemDetails for status code errors
+app.UseStatusCodePages();
 
 app.UseHttpsRedirection();
 
-app.MapGet("/jobs", async () =>   // my first endpoint 
-{
-    await Task.CompletedTask;
-    return Results.Ok(JobListingStore.Jobs); // returns: HTTP 200 OKwith all jobs.
-})
-.WithName("GetJobs");
-
-app.MapGet("/jobs/{id:int}", async (int id) =>    // second endpoint which it get job by ID 
-{
-    await Task.CompletedTask;
-
-    var job = JobListingStore.Jobs.FirstOrDefault(j => j.Id == id);
-
-    return job is not null
-        ? Results.Ok(job)
-        : Results.NotFound(new { message = $"Job with ID {id} was not found." });
-})
-.WithName("GetJobById");
+app.MapControllers();
 
 app.Run();
