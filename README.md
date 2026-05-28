@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-CareerHub API Foundations is a simple ASP.NET Core Minimal API project that demonstrates how to build REST API endpoints for job listings.
+CareerHub API Foundations is an ASP.NET Core Web API project that demonstrates how to build REST API endpoints for job listings.
 
 The API allows users to:
 
@@ -14,7 +14,7 @@ The API allows users to:
 
 ## Technologies Used
 
-- ASP.NET Core Minimal API
+- - ASP.NET Core Web API
 - .NET 10
 - C#
 - VS Code
@@ -135,7 +135,7 @@ http://localhost:5234/jobs/99
 - HTTP responses
 - JSON output
 - Error handling
-- Minimal API structure
+- - Controller-based API structure
 
 ---
 
@@ -174,3 +174,105 @@ The API returns 200 OK together with the updated job response after a successful
 ### DELETE Behaviour for Missing IDs
 
 When attempting to delete a job that does not exist, the API returns 404 Not Found. This is the correct behaviour because the requested resource cannot be found in the system. Returning 404 clearly communicates to the client that the job does not exist rather than silently ignoring the request.
+
+## Assignment 1.3 – Error Handling and Observability
+
+This assignment focuses on implementing centralized error handling and structured logging for the CareerHub API using ASP.NET Core and Serilog.
+
+---
+
+## Features Implemented
+
+* Global exception handling using `IExceptionHandler`
+* Structured `ProblemDetails` responses
+* Custom domain exceptions:
+
+  * `JobNotFoundException`
+  * `DuplicateJobListingException`
+* Serilog structured logging integration
+* Request and response logging
+* Consistent HTTP status code handling
+
+---
+
+## HTTP Status Codes Implemented
+
+| Status Code               | Description                                        |
+| ------------------------- | -------------------------------------------------- |
+| 404 Not Found             | Returned when a job cannot be found                |
+| 409 Conflict              | Returned when attempting to create a duplicate job |
+| 500 Internal Server Error | Returned for unexpected server errors              |
+
+---
+
+## Controller Thinning
+
+Using custom exceptions such as `JobNotFoundException` improves the architecture by keeping controllers clean and focused on request handling instead of managing error responses directly. Rather than returning `NotFound()` inside every controller action, exceptions are thrown and handled centrally by the global exception handler.
+
+This approach:
+
+* Reduces duplicated error-handling code
+* Improves maintainability
+* Keeps controllers easier to read
+* Ensures consistent API error responses across the application
+
+---
+
+## Structured Logging
+
+Serilog’s structured logging is preferred in production environments because it produces searchable and machine-readable logs that can easily be analyzed by monitoring and logging platforms.
+
+Unlike `Console.WriteLine()` string concatenation, structured logging captures:
+
+* timestamps
+* HTTP methods
+* request paths
+* status codes
+* exception details
+* execution times
+
+This makes debugging, monitoring, and troubleshooting significantly easier in large-scale applications.
+
+---
+
+## Technologies Used
+
+* ASP.NET Core Web API
+* Scalar API Reference
+* Serilog
+* ProblemDetails Middleware
+
+---
+
+## Tests Performed
+
+### GET /jobs
+
+Verified successful retrieval of job listings and Serilog request logging.
+
+### GET /jobs/{id}
+
+Tested invalid job ID handling which returns:
+
+* `404 Not Found`
+* Structured ProblemDetails response
+* Logged exception details
+
+### POST /jobs
+
+Tested duplicate job submission which returns:
+
+* `409 Conflict`
+* Duplicate job exception message
+* Structured error response
+* Serilog exception logging
+
+---
+
+## Screenshots
+
+Assignment testing screenshots are stored in:
+
+```text
+CareerHub.Api/Doc/screenshots/
+```
