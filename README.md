@@ -27,6 +27,9 @@ The API allows users to:
 |---|---|---|
 | GET | /jobs | Returns all jobs |
 | GET | /jobs/{id} | Returns a single job |
+| POST | /jobs | Creates a new job |
+| PUT | /jobs/{id} | Updates an existing job |
+| DELETE | /jobs/{id} | Deletes a job |
 
 ---
 
@@ -34,19 +37,35 @@ The API allows users to:
 
 | Folder/File | Purpose |
 |---|---|
-| Models/ | Contains model classes |
-| Stores/ | Contains fake in-memory data |
-| Program.cs | Main API configuration and endpoints |
+| Controllers/ | Contains API controllers |
+| DTOs/ | Contains request and response DTOs |
+| Enums/ | Contains enum definitions |
+| Mappings/ | Contains mapping logic between models and DTOs |
+| Models/ | Contains domain models |
+| Stores/ | Contains fake in-memory data storage |
+| Program.cs | Configures middleware and application services |
+
 
 ---
 
 ## API Structure Choice
 
-This project uses Minimal APIs instead of Controllers.
+This project uses Controllers instead of Minimal APIs.
 
-Minimal APIs were chosen because the assignment only requires a small number of simple GET endpoints. Minimal APIs provide a lightweight and clean approach for building small REST APIs with less boilerplate code.
+Controllers were chosen because the application evolved beyond simple GET endpoints and now includes:
 
-This structure keeps the routing logic simple and easy to understand while still supporting asynchronous endpoint handling and OpenAPI integration.
+- POST requests
+- PUT requests
+- DELETE requests
+- DTO validation
+- Problem Details handling
+- Enum serialization
+- OpenAPI integration
+
+Controllers provide a more structured and scalable approach for enterprise-style ASP.NET Core APIs.
+
+This structure improves separation of concerns by keeping routing and endpoint logic organized inside dedicated controller classes.
+
 
 ---
 
@@ -129,3 +148,29 @@ Branch used:
 ```text
 feature/assignment-1-1-careerhub-api
 ```
+
+---
+
+## Assignment 1.2 Design Decisions
+
+### PostedAt Field
+
+The PostedAt field belongs in JobResponse but not in CreateJobRequest because the client should not control when a job is posted. The server automatically sets the posting date and time when a new job is created using DateTime.UtcNow. Returning the field in JobResponse allows API clients to see when the job was created while still keeping the field server-owned.
+
+---
+
+### Salary Cross-Field Validation
+
+The API uses IValidatableObject to implement cross-field validation between SalaryMin and SalaryMax. This approach was chosen because standard Data Annotation attributes cannot compare two different properties directly. The validation ensures that SalaryMax must always be greater than SalaryMin, helping prevent invalid salary ranges from being stored in the system.
+
+---
+
+### PUT Status Code Choice
+
+The API returns 200 OK together with the updated job response after a successful PUT request. This approach was chosen because it allows the client to immediately receive the updated resource data without making another GET request. Returning the updated object is useful for API consumers and improves client-side synchronization.
+
+---
+
+### DELETE Behaviour for Missing IDs
+
+When attempting to delete a job that does not exist, the API returns 404 Not Found. This is the correct behaviour because the requested resource cannot be found in the system. Returning 404 clearly communicates to the client that the job does not exist rather than silently ignoring the request.
