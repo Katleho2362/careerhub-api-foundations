@@ -1,8 +1,16 @@
 using System.Text.Json.Serialization;
 using Scalar.AspNetCore;
 using CareerHub.Api.Middleware;
+using Serilog;
+
+
+Log.Logger = new LoggerConfiguration()
+    .WriteTo.Console()
+    .CreateLogger();
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Host.UseSerilog();
 
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
@@ -28,6 +36,8 @@ app.UseExceptionHandler();
 
 // Standard ProblemDetails for status code errors
 app.UseStatusCodePages();
+
+app.UseSerilogRequestLogging();
 
 app.UseHttpsRedirection();
 

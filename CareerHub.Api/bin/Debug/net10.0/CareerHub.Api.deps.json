@@ -10,7 +10,8 @@
         "dependencies": {
           "Microsoft.AspNetCore.OpenApi": "10.0.8",
           "Scalar.AspNetCore": "2.14.14",
-          "Serilog.AspNetCore": "10.0.0"
+          "Serilog.AspNetCore": "10.0.0",
+          "Serilog.Sinks.Console": "6.1.1"
         },
         "runtime": {
           "CareerHub.Api.dll": {}
