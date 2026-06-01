@@ -43,3 +43,11 @@ D:\Documents\Work\Bitcube\careerhub-api-foundations\CareerHub.Api\bin\Debug\net1
 D:\Documents\Work\Bitcube\careerhub-api-foundations\CareerHub.Api\bin\Debug\net10.0\Serilog.Sinks.Console.dll
 D:\Documents\Work\Bitcube\careerhub-api-foundations\CareerHub.Api\bin\Debug\net10.0\Serilog.Sinks.Debug.dll
 D:\Documents\Work\Bitcube\careerhub-api-foundations\CareerHub.Api\bin\Debug\net10.0\Serilog.Sinks.File.dll
+D:\Documents\Work\Bitcube\careerhub-api-foundations\CareerHub.Api\bin\Debug\net10.0\Microsoft.AspNetCore.Authentication.JwtBearer.dll
+D:\Documents\Work\Bitcube\careerhub-api-foundations\CareerHub.Api\bin\Debug\net10.0\Microsoft.IdentityModel.Abstractions.dll
+D:\Documents\Work\Bitcube\careerhub-api-foundations\CareerHub.Api\bin\Debug\net10.0\Microsoft.IdentityModel.JsonWebTokens.dll
+D:\Documents\Work\Bitcube\careerhub-api-foundations\CareerHub.Api\bin\Debug\net10.0\Microsoft.IdentityModel.Logging.dll
+D:\Documents\Work\Bitcube\careerhub-api-foundations\CareerHub.Api\bin\Debug\net10.0\Microsoft.IdentityModel.Protocols.dll
+D:\Documents\Work\Bitcube\careerhub-api-foundations\CareerHub.Api\bin\Debug\net10.0\Microsoft.IdentityModel.Protocols.OpenIdConnect.dll
+D:\Documents\Work\Bitcube\careerhub-api-foundations\CareerHub.Api\bin\Debug\net10.0\Microsoft.IdentityModel.Tokens.dll
+D:\Documents\Work\Bitcube\careerhub-api-foundations\CareerHub.Api\bin\Debug\net10.0\System.IdentityModel.Tokens.Jwt.dll

@@ -4,6 +4,7 @@ using CareerHub.Api.Mappings;
 using CareerHub.Api.Models;
 using CareerHub.Api.Stores;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
 
 namespace CareerHub.Api.Controllers;
 
@@ -11,7 +12,7 @@ namespace CareerHub.Api.Controllers;
 [Route("jobs")]
 public class JobsController : ControllerBase
 {
-    [HttpGet]
+    [HttpGet]   //  Public endpoint - anyone can view all jobs
     public async Task<IActionResult> GetJobs()
     {
         await Task.CompletedTask;
@@ -23,7 +24,7 @@ public class JobsController : ControllerBase
         return Ok(response);
     }
 
-    [HttpGet("{id:guid}")]
+    [HttpGet("{id:guid}")]    // Public endpoint - anyone can view a job by ID
     public async Task<IActionResult> GetJobById(Guid id)
     {
         await Task.CompletedTask;
@@ -37,7 +38,9 @@ public class JobsController : ControllerBase
 
         return Ok(JobMapping.ToResponse(job));
     }
+    
 
+    [Authorize(Roles = "Employer")]   // Only authenticated Employers can create new job listings
     [HttpPost]
     public async Task<IActionResult> CreateJob(CreateJobRequest request)
     {
@@ -77,6 +80,8 @@ public class JobsController : ControllerBase
         );
     }
 
+
+    [Authorize(Roles = "Employer")]     // Only authenticated Employers can update existing job listings
     [HttpPut("{id:guid}")]
     public async Task<IActionResult> UpdateJob(Guid id, UpdateJobRequest request)
     {
@@ -102,6 +107,9 @@ public class JobsController : ControllerBase
         return Ok(response);
     }
 
+    
+
+    [Authorize(Roles = "Employer")]   // Only authenticated users with the Employer rolecan delete job listings
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> DeleteJob(Guid id)
     {
