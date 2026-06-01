@@ -276,3 +276,38 @@ Assignment testing screenshots are stored in:
 ```text
 CareerHub.Api/Doc/screenshots/
 ```
+
+## Authentication and Authorization
+
+### 1. Stateless Authentication
+
+Session-based authentication stores user information on the server after a successful login. The server creates a session and sends the client a session identifier, usually stored in a cookie. For every subsequent request, the server must look up the session data to determine who the user is.
+
+JWT-based authentication is stateless. After a successful login, the server generates a JSON Web Token (JWT) containing user information and claims. The client sends this token with each request, and the server validates the token without storing any session data.
+
+Statelessness is important for horizontally scaled APIs because requests can be handled by any server instance. Since no session data is stored on the server, there is no need to share session state between multiple servers. This improves scalability, simplifies deployment, and reduces infrastructure complexity.
+
+### 2. 401 Unauthorized vs 403 Forbidden
+
+A **401 Unauthorized** response occurs when a request requires authentication but the user has not provided a valid JWT token. The authentication middleware cannot establish the user's identity, so access is denied before the request reaches the controller.
+
+A **403 Forbidden** response occurs when the user is authenticated successfully, but does not have the required permissions or role to perform the requested action. In this assignment, a user with the role "User" receives a 403 response when attempting to access endpoints restricted to the "Employer" role.
+
+In the ASP.NET Core middleware pipeline:
+
+* Authentication middleware (`UseAuthentication`) validates the JWT and determines who the user is.
+* Authorization middleware (`UseAuthorization`) evaluates policies and roles to determine what the user is allowed to do.
+
+A 401 response is typically produced during authentication, while a 403 response is produced during authorization.
+
+### 3. Token Storage
+
+Storing JWTs in `localStorage` is considered a security risk because JavaScript running in the browser can access the stored token. If an attacker successfully performs a Cross-Site Scripting (XSS) attack, they may be able to steal the token and impersonate the user.
+
+Safer alternatives include:
+
+* **HttpOnly cookies**, which cannot be accessed by JavaScript.
+* **Secure cookies**, which are only transmitted over HTTPS.
+* **SameSite cookies**, which help protect against Cross-Site Request Forgery (CSRF) attacks.
+
+For production applications, storing authentication tokens in secure HttpOnly cookies is generally considered safer than storing them in localStorage.
