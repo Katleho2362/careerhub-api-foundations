@@ -125,7 +125,7 @@ app.UseHttpsRedirection();
 // Validates JWT tokens and creates User claims
 app.UseAuthentication();
 
-// Enforces [Authorize] and role requirements
+// Enforces Authorize and role requirements
 app.UseAuthorization();
 
 // Maps controller endpoints

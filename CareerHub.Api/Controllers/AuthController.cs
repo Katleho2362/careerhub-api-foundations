@@ -23,7 +23,7 @@ public class AuthController : ControllerBase
     }
 
     // ==========================================
-    // POST: api/auth/login
+    // POST: api/auth/login  End Point
     // ==========================================
     [HttpPost("login")]
     public IActionResult Login(LoginRequest request)
@@ -89,7 +89,7 @@ public class AuthController : ControllerBase
     }
 
     // ==========================================
-    // GET: api/auth/me
+    // GET: api/auth/me  EndPoint
     // ==========================================
     [Authorize]
     [HttpGet("me")]
