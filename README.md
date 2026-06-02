@@ -311,3 +311,17 @@ Safer alternatives include:
 * **SameSite cookies**, which help protect against Cross-Site Request Forgery (CSRF) attacks.
 
 For production applications, storing authentication tokens in secure HttpOnly cookies is generally considered safer than storing them in localStorage.
+
+# Assignment 2.1
+
+## EF Core Change Tracker
+
+The EF Core Change Tracker monitors entities that are loaded or added through the DbContext. When an entity is modified, EF Core keeps track of those changes in memory. Instead of sending a database query every time a property changes, all changes are collected and persisted when SaveChangesAsync() is called. This improves performance by reducing the number of database operations and ensures that related changes are saved together as a single unit of work.
+
+## Migrations as Version Control
+
+Migrations act as version control for the database schema. Whenever the application model changes, a migration records the difference between the current schema and the new schema. Migration files must be committed to source control alongside the code that generated them so that all developers and environments can keep their databases synchronized. If a teammate pulls code that depends on a migration they have not applied, the application may fail because the database structure will not match the code.
+
+## Connection String Security
+
+The connection string is stored in appsettings.Development.json instead of appsettings.json because it contains sensitive information such as database credentials. Files containing secrets should not be committed to source control. Exposing database credentials in a repository can allow unauthorized access to the database. In production environments, a safer approach is to use environment variables, secret management tools, or cloud-based secret stores such as Azure Key Vault to protect sensitive configuration values.
