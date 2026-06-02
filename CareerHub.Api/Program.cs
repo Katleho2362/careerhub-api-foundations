@@ -5,6 +5,8 @@ using Serilog;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
+using CareerHub.Api.Data;
+using Microsoft.EntityFrameworkCore;
 
 // Configure Serilog to write logs to the console
 Log.Logger = new LoggerConfiguration()
@@ -12,6 +14,14 @@ Log.Logger = new LoggerConfiguration()
     .CreateLogger();
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Registers EF Core DbContext and connects it to PostgreSQL.
+// ASP.NET Core injects this DbContext into controllers when needed.
+builder.Services.AddDbContext<CareerHubDbContext>(options =>
+{
+    options.UseNpgsql(
+        builder.Configuration.GetConnectionString("DefaultConnection"));
+});
 
 // Read the JWT secret key from appsettings.Development.json
 var secretKey =

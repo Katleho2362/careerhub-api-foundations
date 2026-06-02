@@ -22,7 +22,7 @@ public class JobListing
     public decimal? SalaryMax { get; set; }
 
     // Set by the server when the job is created
-    public DateTime PostedAt { get; set; }
+   public DateTime PostedAt { get; set; } = DateTime.UtcNow;
 
     // Determines whether the job is active
     public bool IsActive { get; set; }

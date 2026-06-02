@@ -2,34 +2,47 @@ using CareerHub.Api.DTOs;
 using CareerHub.Api.Exceptions;
 using CareerHub.Api.Mappings;
 using CareerHub.Api.Models;
-using CareerHub.Api.Stores;
+
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
+using CareerHub.Api.Data;
+using Microsoft.EntityFrameworkCore;
 
 namespace CareerHub.Api.Controllers;
 
 [ApiController]
 [Route("jobs")]
-public class JobsController : ControllerBase
+public class JobsController (CareerHubDbContext context) : ControllerBase
 {
+    private readonly CareerHubDbContext _context = context;  // DbContext is injected by ASP.NET Core dependency injection.
+
+     // =====================================================
+    // GET ALL JOBS
+    // =====================================================
+
     [HttpGet]   //  Public endpoint - anyone can view all jobs
     public async Task<IActionResult> GetJobs()
     {
-        await Task.CompletedTask;
+        var jobs = await _context.JobListings.ToListAsync();  // Retrieves all job listings from PostgreSQL asynchronously.
 
-        var response = JobListingStore.Jobs
-            .Select(JobMapping.ToResponse)
+        var response = jobs.Select(JobMapping.ToResponse)
             .ToList();
 
         return Ok(response);
     }
 
+     
+
+    // =====================================================
+    // GET JOB BY ID
+    // =====================================================
+
     [HttpGet("{id:guid}")]    // Public endpoint - anyone can view a job by ID
     public async Task<IActionResult> GetJobById(Guid id)
     {
-        await Task.CompletedTask;
+        var job = await _context.JobListings     // Finds a job by its primary key.
+            .FindAsync(id);
 
-        var job = JobListingStore.Jobs.FirstOrDefault(j => j.Id == id);
 
         if (job is null)
         {
@@ -40,17 +53,22 @@ public class JobsController : ControllerBase
     }
     
 
+    // =====================================================
+    // CREATE JOB
+    // =====================================================
+
     [Authorize(Roles = "Employer")]   // Only authenticated Employers can create new job listings
     [HttpPost]
     public async Task<IActionResult> CreateJob(CreateJobRequest request)
     {
-        await Task.CompletedTask;
+        
 
-        var duplicateJob = JobListingStore.Jobs.FirstOrDefault(j =>
-            j.Title.Equals(request.Title, StringComparison.OrdinalIgnoreCase) &&
-            j.Company.Equals(request.Company, StringComparison.OrdinalIgnoreCase));
+      var duplicateJob = await _context.JobListings    // Checks if a matching job already exists without loading records.
+        .AnyAsync(j =>
+         j.Title == request.Title &&
+         j.Company == request.Company);
 
-        if (duplicateJob is not null)
+        if (duplicateJob)
         {
             throw new DuplicateJobListingException(request.Company, request.Title);
         }
@@ -69,7 +87,9 @@ public class JobsController : ControllerBase
             IsActive = true
         };
 
-        JobListingStore.Jobs.Add(job);
+        _context.JobListings.Add(job);
+
+        await _context.SaveChangesAsync();    // Persists all tracked changes to PostgreSQL.
 
         var response = JobMapping.ToResponse(job);
 
@@ -81,13 +101,17 @@ public class JobsController : ControllerBase
     }
 
 
+    // =====================================================
+    // UPDATE JOB
+    // =====================================================
+
     [Authorize(Roles = "Employer")]     // Only authenticated Employers can update existing job listings
     [HttpPut("{id:guid}")]
     public async Task<IActionResult> UpdateJob(Guid id, UpdateJobRequest request)
     {
-        await Task.CompletedTask;
+        
 
-        var existingJob = JobListingStore.Jobs.FirstOrDefault(j => j.Id == id);
+        var existingJob = await _context.JobListings.FindAsync(id);
 
         if (existingJob is null)
         {
@@ -102,27 +126,33 @@ public class JobsController : ControllerBase
         existingJob.SalaryMin = request.SalaryMin;
         existingJob.SalaryMax = request.SalaryMax;
 
+        await _context.SaveChangesAsync();
+
         var response = JobMapping.ToResponse(existingJob);
 
         return Ok(response);
     }
 
     
+    // =====================================================
+    // DELETE JOB
+    // =====================================================
 
     [Authorize(Roles = "Employer")]   // Only authenticated users with the Employer rolecan delete job listings
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> DeleteJob(Guid id)
     {
-        await Task.CompletedTask;
-
-        var job = JobListingStore.Jobs.FirstOrDefault(j => j.Id == id);
+         var job = await _context.JobListings
+            .FindAsync(id);
 
         if (job is null)
         {
             throw new JobNotFoundException(id);
         }
 
-        JobListingStore.Jobs.Remove(job);
+        _context.JobListings.Remove(job);    // Marks the entity for deletion.
+
+        await _context.SaveChangesAsync();
 
         return NoContent();
     }
