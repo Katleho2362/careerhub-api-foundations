@@ -45,14 +45,13 @@ public class AuthController : ControllerBase
         {
             // Subject claim (username)
             new Claim(
-                //JwtRegisteredClaimNames.Sub,
                 ClaimTypes.Name,
                 request.Username),
 
             // Role claim
             new Claim(
                 ClaimTypes.Role,
-                "User")
+                "Employer")
         };
 
         // STEP 3:
