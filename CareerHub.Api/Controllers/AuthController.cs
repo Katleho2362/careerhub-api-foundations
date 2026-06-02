@@ -97,8 +97,9 @@ public class AuthController : ControllerBase
     {
         // Read username from JWT
         var username =
-            User.FindFirstValue(ClaimTypes.Name);
-               // JwtRegisteredClaimNames.Sub);
+            User.FindFirstValue(
+                ClaimTypes.Name);
+               
 
         // Read role from JWT
         var role =
