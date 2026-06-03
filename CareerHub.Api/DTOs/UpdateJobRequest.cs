@@ -10,8 +10,7 @@ public class UpdateJobRequest : IValidatableObject
     public string Title { get; set; } = string.Empty;
 
     [Required]
-    [StringLength(80, MinimumLength = 2)]
-    public string Company { get; set; } = string.Empty;
+    public Guid CompanyId { get; set; } 
 
     [Required]
     public string Location { get; set; } = string.Empty;

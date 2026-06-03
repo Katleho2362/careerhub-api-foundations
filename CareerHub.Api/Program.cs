@@ -100,6 +100,14 @@ builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 
 var app = builder.Build();
 
+using (var scope = app.Services.CreateScope())
+{
+    var context =
+        scope.ServiceProvider.GetRequiredService<CareerHubDbContext>();
+
+    SeedData.Seed(context);
+}
+
 // ==========================================
 // Development-Only API Documentation
 // ==========================================

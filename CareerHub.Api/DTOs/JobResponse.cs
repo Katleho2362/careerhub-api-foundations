@@ -10,7 +10,8 @@ public class JobResponse
 
     public string Description { get; set; } = string.Empty;
 
-    public string Company { get; set; } = string.Empty;
+    //public string Company { get; set; } = string.Empty;
+    public string CompanyName { get; set; } = string.Empty;
 
     public string Location { get; set; } = string.Empty;
 
@@ -23,4 +24,6 @@ public class JobResponse
     public DateTime PostedAt { get; set; }
 
     public string SalaryDisplay { get; set; } = string.Empty;
+
+    public int ApplicationCount { get; set; }  
 }

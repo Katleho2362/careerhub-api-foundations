@@ -325,3 +325,59 @@ Migrations act as version control for the database schema. Whenever the applicat
 ## Connection String Security
 
 The connection string is stored in appsettings.Development.json instead of appsettings.json because it contains sensitive information such as database credentials. Files containing secrets should not be committed to source control. Exposing database credentials in a repository can allow unauthorized access to the database. In production environments, a safer approach is to use environment variables, secret management tools, or cloud-based secret stores such as Azure Key Vault to protect sensitive configuration values.
+
+# Assignment 2.2 — Relationships, Loading Strategies & Query Optimisation
+
+---
+
+## Relationship Design Decisions
+
+### Entity Relationship Diagram
+
+[View ERD on Lucidchart](https://lucid.app/lucidchart/ec6c4ed0-3ae7-406d-af70-aed73d85dbd7/edit?viewport_loc=510%2C-12%2C1799%2C944%2C0_0&invitationId=inv_c41728ca-4b42-494e-8c11-fe5e5b979439)
+
+### Relationships
+
+- **Company → JobListing** — one-to-many. A company owns many listings; a listing belongs to one company.
+- **JobListing ↔ Applicant** — many-to-many via the `Application` join entity.
+- **Applicant → Application** — one-to-many. An applicant can submit many applications.
+
+### Why Application cannot be a hidden join table
+
+A hidden join table only stores two foreign keys. `Application` carries its own data — a submission timestamp and a status (`Submitted`, `UnderReview`, `Shortlisted`, `Rejected`, `Offered`) that changes over time. That makes it a domain concept, not a link. A hidden table cannot store this data or represent state transitions.
+
+### Delete behaviour
+
+| Relationship | Behaviour | Reason |
+|---|---|---|
+| Company → JobListing | Restrict | Cannot delete a company that still has listings — deactivate listings first |
+| JobListing → Application | Cascade | An application cannot exist without its listing |
+| Applicant → Application | Restrict | Application history must be explicitly handled before removing an applicant |
+
+---
+
+## N+1 Problem
+
+### Before fix
+
+Without projection, EF Core loaded every column from every joined table including ones the response DTO never uses — such as the company's website, industry, and the listing's active flag. It also loaded the entire applications collection into memory just to count it in C#.
+
+### After fix
+
+After switching to a Select projection, EF Core fetches only the columns the DTO exposes. The application count is computed by the database using a correlated subquery — a single number returned per row rather than a full collection loaded into memory. The result is one SQL statement with a JOIN regardless of how many listings exist.
+
+### Why this matters in production
+
+Loading unused columns wastes database I/O and network bandwidth on every request. Computing a count in C# instead of SQL means loading entire collections into memory for a number the database can compute instantly. Neither problem is visible in development with five rows — both compound rapidly under real load with thousands of concurrent requests.
+
+---
+
+## Read vs Write Queries
+
+### AsNoTracking on reads
+
+EF Core's change tracker snapshots every loaded entity and watches for changes until SaveChangesAsync is called. On write operations this is essential — it is what allows EF Core to detect which columns changed and write only those. On read-only GET endpoints that never call SaveChangesAsync, it is wasted memory and CPU with no benefit. All read endpoints in this project use AsNoTracking to skip this overhead entirely.
+
+### Silent data loss scenario
+
+If AsNoTracking were accidentally applied to a write operation, EF Core would load the entity outside the change tracker. Any property changes made to that entity would be invisible to the context. SaveChangesAsync would write nothing to the database — no error, no exception, no indication anything went wrong. The caller would receive a 200 OK response and their update would silently disappear. This is one of the most dangerous bugs in EF Core applications because it produces no failure — only incorrect data.
