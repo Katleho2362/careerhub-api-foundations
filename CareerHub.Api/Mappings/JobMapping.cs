@@ -14,13 +14,15 @@ public static class JobMapping
             Id = job.Id,
             Title = job.Title,
             Description = job.Description,
-            Company = job.Company,
+            //Company = job.Company.Name,  // made changes 
+             CompanyName = job.Company?.Name ?? string.Empty,
             Location = job.Location,
             Type = job.Type,
             SalaryMin = job.SalaryMin,
             SalaryMax = job.SalaryMax,
             PostedAt = job.PostedAt,
-            SalaryDisplay = FormatSalary(job.SalaryMin, job.SalaryMax)
+            SalaryDisplay = FormatSalary(job.SalaryMin, job.SalaryMax),
+            ApplicationCount = job.Applications.Count  
         };
     }
 
