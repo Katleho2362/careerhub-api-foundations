@@ -20,18 +20,36 @@ public class JobsController (CareerHubDbContext context) : ControllerBase
     // GET ALL JOBS
     // =====================================================
 
-    [HttpGet]   //  Public endpoint - anyone can view all jobs
-    public async Task<IActionResult> GetJobs()
-    {
-        var jobs = await _context.JobListings.ToListAsync();  // Retrieves all job listings from PostgreSQL asynchronously.
+        [HttpGet]
+        public async Task<IActionResult> GetJobs()
+        {
+            var jobs = await _context.JobListings
+                .AsNoTracking()
+                .Select(j => new JobResponse
+                {
+                    Id = j.Id,
+                    Title = j.Title,
+                    Description = j.Description,
+                    CompanyName = j.Company.Name,
+                    Location = j.Location,
+                    Type = j.Type,
+                    SalaryMin = j.SalaryMin,
+                    SalaryMax = j.SalaryMax,
+                    PostedAt = j.PostedAt,
+                    SalaryDisplay = j.SalaryMin == null && j.SalaryMax == null
+                        ? "Salary not specified"
+                        : j.SalaryMin != null && j.SalaryMax != null
+                            ? $"R{j.SalaryMin:N0} – R{j.SalaryMax:N0}/month"
+                            : j.SalaryMin != null
+                                ? $"From R{j.SalaryMin:N0}/month"
+                                : $"Up to R{j.SalaryMax:N0}/month",
+                    ApplicationCount = j.Applications.Count()
+                })
+                .ToListAsync();
 
-        var response = jobs.Select(JobMapping.ToResponse)
-            .ToList();
+            return Ok(jobs);
+        }
 
-        return Ok(response);
-    }
-
-     
 
     // =====================================================
     // GET JOB BY ID
@@ -40,16 +58,29 @@ public class JobsController (CareerHubDbContext context) : ControllerBase
     [HttpGet("{id:guid}")]    // Public endpoint - anyone can view a job by ID
     public async Task<IActionResult> GetJobById(Guid id)
     {
-        var job = await _context.JobListings     // Finds a job by its primary key.
-            .FindAsync(id);
+        // var job = await _context.JobListings     // Finds a job by its primary key.
+        //     .FindAsync(id);
 
 
-        if (job is null)
-        {
-            throw new JobNotFoundException(id);
-        }
+        // if (job is null)
+        // {
+        //     throw new JobNotFoundException(id);
+        // }
 
-        return Ok(JobMapping.ToResponse(job));
+        // return Ok(JobMapping.ToResponse(job));
+
+        var job = await _context.JobListings
+        .AsNoTracking()
+        .Include(j => j.Company)
+        .Include(j => j.Applications)
+            .ThenInclude(a => a.Applicant)
+        .FirstOrDefaultAsync(j => j.Id == id);   // FindAsync doesn't support Include
+
+    if (job is null)
+        throw new JobNotFoundException(id);
+
+    return Ok(JobMapping.ToResponse(job));
+
     }
     
 
@@ -66,11 +97,11 @@ public class JobsController (CareerHubDbContext context) : ControllerBase
       var duplicateJob = await _context.JobListings    // Checks if a matching job already exists without loading records.
         .AnyAsync(j =>
          j.Title == request.Title &&
-         j.Company == request.Company);
+         j.CompanyId == request.CompanyId);
 
         if (duplicateJob)
         {
-            throw new DuplicateJobListingException(request.Company, request.Title);
+            throw new DuplicateJobListingException(request.CompanyId.ToString(), request.Title);
         }
 
         var job = new JobListing
@@ -78,7 +109,7 @@ public class JobsController (CareerHubDbContext context) : ControllerBase
             Id = Guid.NewGuid(),
             Title = request.Title,
             Description = request.Description,
-            Company = request.Company,
+            CompanyId = request.CompanyId,
             Location = request.Location,
             Type = request.Type,
             SalaryMin = request.SalaryMin,
@@ -91,12 +122,18 @@ public class JobsController (CareerHubDbContext context) : ControllerBase
 
         await _context.SaveChangesAsync();    // Persists all tracked changes to PostgreSQL.
 
-        var response = JobMapping.ToResponse(job);
+       // var response = JobMapping.ToResponse(job);
+       // Reload with Company so the mapper can access job.Company.Name
+        var created = await _context.JobListings
+            .AsNoTracking()
+            .Include(j => j.Company)
+            .FirstAsync(j => j.Id == job.Id);
 
         return CreatedAtAction(
             nameof(GetJobById),
             new { id = job.Id },
-            response
+            //response
+            JobMapping.ToResponse(created)
         );
     }
 
@@ -111,7 +148,10 @@ public class JobsController (CareerHubDbContext context) : ControllerBase
     {
         
 
-        var existingJob = await _context.JobListings.FindAsync(id);
+        //var existingJob = await _context.JobListings.FindAsync(id);
+            var existingJob = await _context.JobListings
+            .Include(j => j.Company)
+            .FirstOrDefaultAsync(j => j.Id == id);
 
         if (existingJob is null)
         {
@@ -120,7 +160,7 @@ public class JobsController (CareerHubDbContext context) : ControllerBase
 
         existingJob.Title = request.Title;
         existingJob.Description = request.Description;
-        existingJob.Company = request.Company;
+        existingJob.CompanyId = request.CompanyId;
         existingJob.Location = request.Location;
         existingJob.Type = request.Type;
         existingJob.SalaryMin = request.SalaryMin;
@@ -128,9 +168,10 @@ public class JobsController (CareerHubDbContext context) : ControllerBase
 
         await _context.SaveChangesAsync();
 
-        var response = JobMapping.ToResponse(existingJob);
+        //var response = JobMapping.ToResponse(existingJob);
 
-        return Ok(response);
+       // return Ok(response);
+        return Ok(JobMapping.ToResponse(existingJob));
     }
 
     

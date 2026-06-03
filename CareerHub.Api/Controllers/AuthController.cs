@@ -89,6 +89,44 @@ public class AuthController : ControllerBase
     }
 
     // ==========================================
+// POST: api/auth/login/applicant
+// Generates a token with the Applicant role
+// ==========================================
+[HttpPost("login/applicant")]
+public IActionResult LoginAsApplicant(LoginRequest request)
+{
+    if (
+        request.Username != "applicant" ||
+        request.Password != "password123"
+    )
+    {
+        return Unauthorized();
+    }
+
+    var claims = new[]
+    {
+        new Claim(ClaimTypes.Name, request.Username),
+        new Claim(ClaimTypes.Role, "Applicant")
+    };
+
+    var key = new SymmetricSecurityKey(
+        Encoding.UTF8.GetBytes(
+            _configuration["Jwt:SecretKey"]!));
+
+    var credentials = new SigningCredentials(
+        key, SecurityAlgorithms.HmacSha256);
+
+    var token = new JwtSecurityToken(
+        claims: claims,
+        expires: DateTime.UtcNow.AddHours(2),
+        signingCredentials: credentials);
+
+    var tokenString = new JwtSecurityTokenHandler().WriteToken(token);
+
+    return Ok(new LoginResponse(tokenString));
+}
+
+    // ==========================================
     // GET: api/auth/me  EndPoint
     // ==========================================
     [Authorize]
