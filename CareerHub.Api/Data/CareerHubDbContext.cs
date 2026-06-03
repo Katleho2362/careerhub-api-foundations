@@ -1,5 +1,6 @@
 using CareerHub.Api.Models;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace CareerHub.Api.Data;
 
@@ -151,5 +152,12 @@ public class CareerHubDbContext(
                 .OnDelete(DeleteBehavior.Restrict);
         });
 
+
     }
+
+//    protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
+//     {
+//         optionsBuilder.LogTo(Console.WriteLine, LogLevel.Information);
+//     }
+
 }
