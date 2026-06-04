@@ -381,3 +381,142 @@ EF Core's change tracker snapshots every loaded entity and watches for changes u
 ### Silent data loss scenario
 
 If AsNoTracking were accidentally applied to a write operation, EF Core would load the entity outside the change tracker. Any property changes made to that entity would be invisible to the context. SaveChangesAsync would write nothing to the database — no error, no exception, no indication anything went wrong. The caller would receive a 200 OK response and their update would silently disappear. This is one of the most dangerous bugs in EF Core applications because it produces no failure — only incorrect data.
+
+
+## Assignment 2.3 — Architecture Decisions
+
+### 1. Boundary Decisions
+
+I took the **one repository per entity** approach: `IJobListingRepository` and
+`IApplicationRepository`.
+
+I did not create a separate `ICompanyRepository` because the only company query the system
+needs is `CompanyExistsAsync(Guid companyId)` — a single boolean check that fits naturally
+inside `IJobListingRepository`. Adding a full repository for one method would be an empty
+abstraction with no current use case.
+
+When `ApplicationService` needs to validate that a listing exists before creating an
+application, that query lives in `IJobListingRepository.IsListingOpenAsync()`. The query
+targets the `job_listings` table — it is a query about a job listing, not about an
+application. Putting it in `IApplicationRepository` would create a cross-entity dependency
+inside the repository layer. Putting it directly in the service would break the rule that
+only repositories import EF Core.
+
+### 2. Return Types
+
+Returning `IQueryable<T>` from a repository interface breaks the abstraction because
+composing it with `Where`, `Include`, or `AnyAsync` forces the caller to import
+`Microsoft.EntityFrameworkCore`. The interface is then only implementable with EF Core —
+you cannot swap it for Dapper, an in-memory list, or a mock without rewriting every caller.
+The abstraction exists so callers do not need to know how data is fetched. Returning
+`IQueryable<T>` collapses that boundary.
+
+### 3. Lifetime Choices
+
+| Service | Lifetime | Wrong choice consequence |
+|---|---|---|
+| `CareerHubDbContext` | Scoped | **Singleton:** shared change tracker across requests causes concurrency corruption. **Transient:** two contexts per request means `SaveChangesAsync` in one does not see changes made in the other. |
+| `JobListingService` | Scoped | **Singleton:** captures a Scoped `DbContext` that is disposed after request 1, causing `ObjectDisposedException` on every subsequent request. |
+| `ApplicationRepository` | Scoped | **Singleton:** same captive dependency problem — holds a disposed `DbContext` after the first request. |
+| `ApplicationStatusCache` | Singleton | **Scoped/Transient:** recreates the same static read-only dictionary on every request for no benefit. A Singleton is safe because the data never changes. |
+
+### 4. Status Transitions
+
+**The service layer owns this validation.**
+
+- **Not the controller** — the controller's job is HTTP parsing and response mapping. A
+  background job cannot reuse a rule that lives inside an HTTP action method, and the rule
+  cannot be tested without sending an HTTP request.
+- **Not the repository** — the repository's job is data access. It should persist whatever
+  the service hands it. Transition rules in the repository cannot be tested without a
+  database connection and mix two responsibilities into one class.
+- **The service** — the rule is a business rule. It is expressed as a pure static method
+  that takes a current status and a target status and returns a bool, with no database
+  involved.
+
+---
+## Assignment 2.3 part 2 — Architecture Notes
+
+### 1. Repository Design Decisions
+
+Two repositories were created following entity ownership boundaries:
+
+- `IJobListingRepository` — owns all queries targeting `job_listings` and `companies`
+- `IApplicationRepository` — owns all queries targeting `applications` and `applicants`
+
+No `ICompanyRepository` was created. The only company query needed is
+`CompanyExistsAsync` — a single boolean check that lives inside `IJobListingRepository`.
+A dedicated repository for one method would be an empty abstraction with no current
+use case. If company management features are added in future, the repository can be
+extracted then.
+
+### 2. What the Controller Lost
+
+Every piece of logic removed from controllers during the refactor:
+
+| Logic removed | Moved to | Reason |
+|---|---|---|
+| `AnyAsync` duplicate job check | `JobListingRepository` | Data access belongs in the repository |
+| Company existence check | `JobListingRepository` | Data access belongs in the repository |
+| Building the `JobListing` entity | `JobListingService` | Entity construction is business logic |
+| Closing date validation | `JobListingService` | Business rule — not an HTTP concern |
+| Owner validation on update | `JobListingService` | Business rule — not an HTTP concern |
+| Duplicate application check | `ApplicationRepository` | Data access belongs in the repository |
+| Applicant existence check | `ApplicationRepository` | Data access belongs in the repository |
+| Status transition validation | `ApplicationService` | Business rule — not an HTTP concern |
+| `SaveChangesAsync` calls | Repositories | Persistence is a repository responsibility |
+| `try/catch` blocks | `GlobalExceptionHandler` | Exception mapping is a cross-cutting concern |
+
+After the refactor every controller action does exactly three things: parse the request,
+call one service method, return an HTTP response.
+
+### 3. Status Transition Design
+
+Valid transitions are encoded in a single static dictionary inside
+`Services/ApplicationStatusTransitions.cs`:
+Submitted    { UnderReview }
+UnderReview  { Shortlisted, Rejected }
+Shortlisted  { Offered, Rejected }
+Offered      { }
+Rejected    →{ }
+
+This satisfies all three Part 6 requirements:
+
+1. **Defined in exactly one place** — the dictionary is the single source of truth. No
+   switch statements or if/else chains anywhere else in the codebase.
+
+2. **No database query needed** — `ApplicationStatusTransitions.IsPermitted(from, to)` is
+   a pure static method. The service calls it before touching the repository.
+
+3. **One line to extend** — to allow `Offered → Accepted`, add one entry to the dictionary:
+   `[ApplicationStatus.Offered] = new HashSet<ApplicationStatus> { ApplicationStatus.Accepted }`.
+   Nothing else in the codebase changes.
+
+### 4. Lifetime Misconfiguration
+
+To test DI validation, `IJobListingService` was temporarily registered as Singleton:
+
+```csharp
+// Deliberate mistake — used to trigger startup validation error
+services.AddSingleton<IJobListingService, JobListingService>();
+```
+
+The app refused to start with this error:
+System.AggregateException: Some services are not able to be constructed.
+Error: Cannot consume scoped service 'CareerHub.Api.Repositories.IJobListingRepository'
+from singleton 'CareerHub.Api.Services.IJobListingService'.
+
+**Why the container cannot allow this:** A Singleton lives for the entire application
+lifetime. A Scoped service is created per request and disposed at the end of it. If a
+Singleton captures a Scoped service, the Scoped service is never disposed — it lives
+forever inside the Singleton. At runtime this means the `DbContext` is never disposed,
+its change tracker accumulates entities from every request ever made, and concurrent
+requests share state they should never share, causing data corruption and memory leaks.
+
+**Fix:** Restore the correct lifetime:
+
+```csharp
+services.AddScoped<IJobListingService, JobListingService>(); // correct
+```
+
+The app starts cleanly after this correction.
