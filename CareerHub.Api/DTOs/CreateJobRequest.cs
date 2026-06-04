@@ -28,6 +28,9 @@ public class CreateJobRequest : IValidatableObject
     [Range(0.01, double.MaxValue)]
     public decimal? SalaryMax { get; set; }
 
+    [Required] 
+    public DateTime ClosingDate { get; set; }
+
     // Cross-field validation
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {

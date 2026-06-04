@@ -72,6 +72,7 @@ public static class SeedData
             SalaryMin = 35000,
             SalaryMax = 55000,
             PostedAt = DateTime.UtcNow,
+            ClosingDate = DateTime.UtcNow.AddMonths(3),
             IsActive = true
         };
 
@@ -86,6 +87,7 @@ public static class SeedData
             SalaryMin = 25000,
             SalaryMax = 38000,
             PostedAt = DateTime.UtcNow,
+            ClosingDate = DateTime.UtcNow.AddMonths(3),
             IsActive = true
         };
 
@@ -100,6 +102,7 @@ public static class SeedData
             SalaryMin = 18000,
             SalaryMax = 28000,
             PostedAt = DateTime.UtcNow,
+            ClosingDate = DateTime.UtcNow.AddMonths(3),
             IsActive = true
         };
 
@@ -114,6 +117,7 @@ public static class SeedData
             SalaryMin = 30000,
             SalaryMax = 45000,
             PostedAt = DateTime.UtcNow,
+            ClosingDate = DateTime.UtcNow.AddMonths(3),
             IsActive = true
         };
 
@@ -128,6 +132,7 @@ public static class SeedData
             SalaryMin = 45000,
             SalaryMax = 70000,
             PostedAt = DateTime.UtcNow,
+            ClosingDate = DateTime.UtcNow.AddMonths(3),
             IsActive = true
         };
 
