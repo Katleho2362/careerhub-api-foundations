@@ -18,15 +18,20 @@ public class GlobalExceptionHandler : IExceptionHandler
         Exception exception,
         CancellationToken cancellationToken)
     {
-        _logger.LogError(exception,
-            "An exception occurred: {Message}",
-            exception.Message);
+        _logger.LogError(exception, "An exception occurred: {Message}", exception.Message);
 
         var statusCode = exception switch
         {
-            JobNotFoundException => StatusCodes.Status404NotFound,
-            DuplicateJobListingException => StatusCodes.Status409Conflict,
-            _ => StatusCodes.Status500InternalServerError
+            JobNotFoundException              => StatusCodes.Status404NotFound,
+            CompanyNotFoundException          => StatusCodes.Status404NotFound,
+            DuplicateJobListingException      => StatusCodes.Status409Conflict,
+            DuplicateApplicationException     => StatusCodes.Status409Conflict,
+            ListingClosedException            => StatusCodes.Status422UnprocessableEntity,
+            InvalidStatusTransitionException  => StatusCodes.Status422UnprocessableEntity,
+            UnauthorisedApplicantException    => StatusCodes.Status403Forbidden,
+            ArgumentException                 => StatusCodes.Status400BadRequest,
+            UnauthorizedAccessException       => StatusCodes.Status403Forbidden,
+            _                                 => StatusCodes.Status500InternalServerError
         };
 
         var problemDetails = new ProblemDetails
@@ -40,9 +45,7 @@ public class GlobalExceptionHandler : IExceptionHandler
         httpContext.Response.StatusCode = statusCode;
         httpContext.Response.ContentType = "application/problem+json";
 
-        await httpContext.Response.WriteAsJsonAsync(
-            problemDetails,
-            cancellationToken);
+        await httpContext.Response.WriteAsJsonAsync(problemDetails, cancellationToken);
 
         return true;
     }
@@ -50,8 +53,11 @@ public class GlobalExceptionHandler : IExceptionHandler
     private static string GetTitle(int statusCode) =>
         statusCode switch
         {
-            StatusCodes.Status404NotFound => "Resource Not Found",
-            StatusCodes.Status409Conflict => "Resource Conflict",
-            _ => "Internal Server Error"
+            StatusCodes.Status400BadRequest           => "Bad Request",
+            StatusCodes.Status403Forbidden            => "Forbidden",
+            StatusCodes.Status404NotFound             => "Resource Not Found",
+            StatusCodes.Status409Conflict             => "Resource Conflict",
+            StatusCodes.Status422UnprocessableEntity  => "Unprocessable Request",
+            _                                         => "Internal Server Error"
         };
 }
