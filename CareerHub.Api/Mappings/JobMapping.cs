@@ -5,27 +5,27 @@ namespace CareerHub.Api.Mappings;
 
 public static class JobMapping
 {
-
-    //  we takes one job from store and converts it into the response format clients should see.
-    public static JobResponse ToResponse(JobListing job)
+    public static JobResponse ToResponse(JobListing job) => new()
     {
-        return new JobResponse
-        {
-            Id = job.Id,
-            Title = job.Title,
-            Description = job.Description,
-            //Company = job.Company.Name,  // made changes 
-             CompanyName = job.Company?.Name ?? string.Empty,
-            Location = job.Location,
-            Type = job.Type,
-            SalaryMin = job.SalaryMin,
-            SalaryMax = job.SalaryMax,
-            PostedAt = job.PostedAt,
-            SalaryDisplay = FormatSalary(job.SalaryMin, job.SalaryMax),
-            ApplicationCount = job.Applications.Count  
-        };
-    }
-
+        Id = job.Id,
+        Title = job.Title,
+        Description = job.Description,
+        CompanyName = job.Company.Name,
+        Location = job.Location,
+        Type = job.Type,
+        SalaryMin = job.SalaryMin,
+        SalaryMax = job.SalaryMax,
+        PostedAt = job.PostedAt,
+        ClosingDate = job.ClosingDate,              // ← NEW
+        SalaryDisplay = job.SalaryMin == null && job.SalaryMax == null
+            ? "Salary not specified"
+            : job.SalaryMin != null && job.SalaryMax != null
+                ? $"R{job.SalaryMin:N0} – R{job.SalaryMax:N0}/month"
+            : job.SalaryMin != null
+                ? $"From R{job.SalaryMin:N0}/month"
+                : $"Up to R{job.SalaryMax:N0}/month",
+        ApplicationCount = job.Applications.Count
+    };
 
 // we create a readable salary string 
     private static string FormatSalary(decimal? salaryMin, decimal? salaryMax)

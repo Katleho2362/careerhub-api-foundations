@@ -25,5 +25,9 @@ public class JobResponse
 
     public string SalaryDisplay { get; set; } = string.Empty;
 
+    public DateTime ClosingDate { get; set; } 
+
     public int ApplicationCount { get; set; }  
+
+    
 }

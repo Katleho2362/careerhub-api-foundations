@@ -29,6 +29,8 @@ public class JobListing
 
     public DateTime PostedAt { get; set; } = DateTime.UtcNow;
 
+    public DateTime ClosingDate { get; set; } 
+
     public bool IsActive { get; set; }
 
     // One listing can receive many applications

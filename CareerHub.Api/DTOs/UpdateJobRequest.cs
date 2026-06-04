@@ -28,6 +28,9 @@ public class UpdateJobRequest : IValidatableObject
     [Range(0.01, double.MaxValue)]
     public decimal? SalaryMax { get; set; }
 
+     [Required] 
+     public DateTime ClosingDate { get; set; } 
+
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
         if (SalaryMin.HasValue &&
