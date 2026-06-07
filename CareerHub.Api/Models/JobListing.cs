@@ -1,4 +1,5 @@
 using CareerHub.Api.Enums;
+using NpgsqlTypes;
 
 namespace CareerHub.Api.Models;
 
@@ -32,6 +33,10 @@ public class JobListing
     public DateTime ClosingDate { get; set; } 
 
     public bool IsActive { get; set; }
+
+    // Computed stored tsvector column — maintained by PostgreSQL automatically
+    // Combines Title (weight A) and Description (weight B) for full-text search
+    public NpgsqlTsVector SearchVector { get; set; } = null!;
 
     // One listing can receive many applications
     public ICollection<Application> Applications { get; set; } = [];

@@ -16,148 +16,181 @@ public class CareerHubDbContext(
     public DbSet<Applicant> Applicants => Set<Applicant>();
     public DbSet<Application> Applications => Set<Application>();
 
-    protected override void OnModelCreating(ModelBuilder modelBuilder)
-    {
-
-     // =====================================================
+protected override void OnModelCreating(ModelBuilder modelBuilder)
+{
+    // =====================================================
     //   COMPANY
     // =====================================================
+    modelBuilder.Entity<Company>(entity =>
+    {
+        entity.ToTable("companies");
 
-        modelBuilder.Entity<Company>(entity =>
-        {
-            entity.ToTable("companies");
+        entity.HasKey(c => c.Id);
 
-            entity.HasKey(c => c.Id);
+        entity.Property(c => c.Id)
+            .ValueGeneratedNever();
 
-            // We assign the Guid in C# code, not the database
-            entity.Property(c => c.Id)
-                .ValueGeneratedNever();
+        entity.Property(c => c.Name)
+            .IsRequired()
+            .HasMaxLength(200);
 
-            entity.Property(c => c.Name)
-                .IsRequired()
-                .HasMaxLength(200);
+        entity.Property(c => c.Website)
+            .HasMaxLength(300);
 
-            entity.Property(c => c.Website)
-                .HasMaxLength(300);
+        entity.Property(c => c.Industry)
+            .HasMaxLength(100);
 
-            entity.Property(c => c.Industry)
-                .HasMaxLength(100);
-
-            // No two companies can have the same name
-            entity.HasIndex(c => c.Name)
-                .IsUnique();
-        });
-       
+        entity.HasIndex(c => c.Name)
+            .IsUnique();
+    });
 
     // =====================================================
     //   APPLICANT
     // =====================================================
-     
-         modelBuilder.Entity<Applicant>(entity =>
-        {
-            entity.ToTable("applicants");
+    modelBuilder.Entity<Applicant>(entity =>
+    {
+        entity.ToTable("applicants");
 
-            entity.HasKey(a => a.Id);
+        entity.HasKey(a => a.Id);
 
-            entity.Property(a => a.Id)
-                .ValueGeneratedNever();
+        entity.Property(a => a.Id)
+            .ValueGeneratedNever();
 
-            entity.Property(a => a.FullName)
-                .IsRequired()
-                .HasMaxLength(200);
+        entity.Property(a => a.FullName)
+            .IsRequired()
+            .HasMaxLength(200);
 
-            entity.Property(a => a.Email)
-                .IsRequired()
-                .HasMaxLength(200);
+        entity.Property(a => a.Email)
+            .IsRequired()
+            .HasMaxLength(200);
 
-            // No two applicants can share the same email
-            entity.HasIndex(a => a.Email)
-                .IsUnique();
-        });
-
+        entity.HasIndex(a => a.Email)
+            .IsUnique();
+    });
 
     // =====================================================
     //   JOBLISTING
     // =====================================================
+    modelBuilder.Entity<JobListing>(entity =>
+    {
+        entity.ToTable("job_listings");
 
-        modelBuilder.Entity<JobListing>(entity =>
-        {
-            entity.ToTable("job_listings");
+        entity.HasKey(j => j.Id);
 
-            entity.HasKey(j => j.Id);
+        entity.Property(j => j.Id)
+            .ValueGeneratedNever();
 
-            entity.Property(j => j.Id)
-                .ValueGeneratedNever();
+        entity.Property(j => j.Title)
+            .IsRequired()
+            .HasMaxLength(200);
 
-            entity.Property(j => j.Title)
-                .IsRequired()
-                .HasMaxLength(200);
+        entity.Property(j => j.Description)
+            .IsRequired()
+            .HasMaxLength(2000);
 
-            entity.Property(j => j.Description)
-                .IsRequired()
-                .HasMaxLength(2000);
+        entity.Property(j => j.Location)
+            .IsRequired()
+            .HasMaxLength(200);
 
-            entity.Property(j => j.Location)
-                .IsRequired()
-                .HasMaxLength(200);
+        entity.HasIndex(j => new { j.Title, j.CompanyId })
+            .IsUnique();
 
-            // Unique index now uses CompanyId instead of Company string
-            // Prevents the same company posting the same job title twice
-            entity.HasIndex(j => new { j.Title, j.CompanyId })
-                .IsUnique();
+        entity.HasOne(j => j.Company)
+            .WithMany(c => c.JobListings)
+            .HasForeignKey(j => j.CompanyId)
+            .OnDelete(DeleteBehavior.Restrict);
 
-            // Company → JobListing relationship
-            // Restrict: you cannot delete a company that still has listings
-            // This protects data integrity — deactivate listings first
-            entity.HasOne(j => j.Company)
-                .WithMany(c => c.JobListings)
-                .HasForeignKey(j => j.CompanyId)
-                .OnDelete(DeleteBehavior.Restrict);
-        });
+        // Composite index — active listing query (job board page load)
+        // IsActive first: eliminates inactive listings immediately
+        // ClosingDate second: range scan within the active subset
+        entity.HasIndex(j => new { j.IsActive, j.ClosingDate })
+            .HasDatabaseName("ix_job_listings_active_closing");
+
+        // Composite index — company-scoped listing query (employer dashboard)
+        // CompanyId first: highly selective, narrows to one company immediately
+        // IsActive second: filters within that company's listings
+        entity.HasIndex(j => new { j.CompanyId, j.IsActive })
+            .HasDatabaseName("ix_job_listings_company_active");    
+
+        // =====================================================
+        // CHECK CONSTRAINTS — enforce business rules at DB level
+        // =====================================================
+
+        // SalaryMin must be positive when provided
+        entity.ToTable(t => t.HasCheckConstraint(
+            "ck_job_listings_salary_min_positive",
+            "\"SalaryMin\" IS NULL OR \"SalaryMin\" > 0"));
+
+        // SalaryMax must be greater than SalaryMin when both provided
+        // Null salary range is allowed — only invalid when both exist and max < min
+        entity.ToTable(t => t.HasCheckConstraint(
+            "ck_job_listings_salary_range_valid",
+            "\"SalaryMin\" IS NULL OR \"SalaryMax\" IS NULL OR \"SalaryMax\" > \"SalaryMin\""));
+
+        // ClosingDate must be after PostedAt
+        // A listing cannot close before it was posted
+        entity.ToTable(t => t.HasCheckConstraint(
+            "ck_job_listings_closing_after_posted",
+            "\"ClosingDate\" > \"PostedAt\""));
+
+        // Computed stored tsvector column — PostgreSQL maintains this automatically
+        // Combines Title (weight A — more important) and Description (weight B)
+        // using the english language configuration for stemming and stop words
+        entity.Property(j => j.SearchVector)
+            .HasColumnType("tsvector")
+            .HasComputedColumnSql(
+                "to_tsvector('english', coalesce(\"Title\", '') || ' ' || coalesce(\"Description\", ''))",
+                stored: true);
+
+        // GIN index on the computed tsvector column — required for fast full-text search
+        // GIN (Generalized Inverted Index) is the correct index type for tsvector columns
+        // A B-tree index cannot index tsvector data
+        entity.HasIndex(j => j.SearchVector)
+            .HasDatabaseName("ix_job_listings_search_vector")
+            .HasMethod("GIN"); 
+    });
 
     // =====================================================
-    //   Application 
+    //   APPLICATION
     // =====================================================
+    modelBuilder.Entity<Application>(entity =>
+    {
+        entity.ToTable("applications");
 
-      modelBuilder.Entity<Application>(entity =>
-        {
-            entity.ToTable("applications");
+        entity.HasKey(a => new { a.JobListingId, a.ApplicantId });
 
-            // Composite primary key — this is what prevents duplicate applications
-            // One applicant can only apply once to the same listing
-            entity.HasKey(a => new { a.JobListingId, a.ApplicantId });
+        entity.Property(a => a.JobListingId)
+            .ValueGeneratedNever();
 
-            entity.Property(a => a.JobListingId)
-                .ValueGeneratedNever();
+        entity.Property(a => a.ApplicantId)
+            .ValueGeneratedNever();
 
-            entity.Property(a => a.ApplicantId)
-                .ValueGeneratedNever();
+        entity.Property(a => a.SubmittedAt)
+            .IsRequired();
 
-            entity.Property(a => a.SubmittedAt)
-                .IsRequired();
+        entity.HasOne(a => a.JobListing)
+            .WithMany(j => j.Applications)
+            .HasForeignKey(a => a.JobListingId)
+            .OnDelete(DeleteBehavior.Cascade);
 
-            // JobListing → Application
-            // Cascade: if a listing is deleted, its applications go with it
-            entity.HasOne(a => a.JobListing)
-                .WithMany(j => j.Applications)
-                .HasForeignKey(a => a.JobListingId)
-                .OnDelete(DeleteBehavior.Cascade);
-
-            // Applicant → Application
-            // Restrict: don't silently erase application history
-            // if someone tries to delete an applicant
-            entity.HasOne(a => a.Applicant)
-                .WithMany(ap => ap.Applications)
-                .HasForeignKey(a => a.ApplicantId)
-                .OnDelete(DeleteBehavior.Restrict);
-        });
+        entity.HasOne(a => a.Applicant)
+            .WithMany(ap => ap.Applications)
+            .HasForeignKey(a => a.ApplicantId)
+            .OnDelete(DeleteBehavior.Restrict);
 
 
-    }
+        // Index supporting HasApplicantAppliedAsync — called on every submission
+        entity.HasIndex(a => new { a.JobListingId, a.ApplicantId })
+            .HasDatabaseName("ix_applications_listing_applicant");
 
-//    protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
-//     {
-//         optionsBuilder.LogTo(Console.WriteLine, LogLevel.Information);
-//     }
+        // Index supporting GetApplicationsForListingAsync — employer dashboard
+        entity.HasIndex(a => a.JobListingId)
+            .HasDatabaseName("ix_applications_listing_id");
 
-}
+        // SubmittedAt must not be in the future
+        // Applications cannot be backdated or forward-dated
+        entity.ToTable(t => t.HasCheckConstraint(
+            "ck_applications_submitted_not_future",
+            "\"SubmittedAt\" <= now()"));
+    });
+}}

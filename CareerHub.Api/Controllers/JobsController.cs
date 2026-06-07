@@ -21,6 +21,29 @@ public class JobsController(IJobListingService jobListingService) : ControllerBa
         return Ok(jobs);
     }
 
+
+        // =====================================================
+        // SEARCH JOBS
+        // GET /jobs/search?q={term}
+        // =====================================================
+        [HttpGet("search")]
+        public async Task<IActionResult> SearchJobs([FromQuery] string q)
+        {
+            var results = await _jobListingService.SearchListingsAsync(q);
+            return Ok(results);
+        }
+
+        // =====================================================
+        // GET APPLICATION STATS
+        // GET /jobs/stats?companyId={id}
+        // =====================================================
+        [HttpGet("stats")]
+        public async Task<IActionResult> GetApplicationStats([FromQuery] Guid companyId)
+        {
+            var stats = await _jobListingService.GetApplicationStatsAsync(companyId);
+            return Ok(stats);
+        }
+
     // =====================================================
     // GET JOB BY ID
     // =====================================================

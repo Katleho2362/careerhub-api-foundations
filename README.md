@@ -520,3 +520,106 @@ services.AddScoped<IJobListingService, JobListingService>(); // correct
 ```
 
 The app starts cleanly after this correction.
+
+## Assignment 2.4 — Query Optimisation & PostgreSQL Features
+
+### 1. Constraint Placement
+
+Service-layer validation can be bypassed by:
+1. **Direct psql access** — a developer runs INSERT/UPDATE directly during an incident
+2. **Migration scripts** — batch updates run directly against the database
+3. **A bug in the service** — validation accidentally removed during a refactor
+
+Without a database constraint, invalid data is stored silently with no exception or log.
+
+### 2. Index Column Ordering
+
+**`ix_job_listings_active_closing` — `IsActive, ClosingDate`**
+`IsActive` first: eliminates all inactive listings before the range scan on `ClosingDate`.
+A query filtering only on `ClosingDate` cannot use this index efficiently.
+
+**`ix_job_listings_company_active` — `CompanyId, IsActive`**
+`CompanyId` first: highly selective, narrows to one company immediately.
+`IsActive` second: filters within that company's listings.
+
+### 3. Identifying Hot Paths
+
+**`IsListingOpenAsync`** — called on every application submission. Entry point of the
+most write-heavy operation. With 1,000 daily users submitting applications, this runs
+hundreds of times per hour during peak periods.
+
+**`GetActiveListingsAsync`** — called on every job board page load. With 1,000 daily
+users averaging 5 page loads each, this runs ~3-4 times per minute during business
+hours. EF Core recompiles the LINQ expression tree on every call without a compiled query.
+
+### 4. FromSql Scope
+
+The stats query requires `RANK() OVER (ORDER BY ...)` — a window function EF Core
+cannot translate from LINQ. It also requires `COUNT(*) FILTER (WHERE ...)` — PostgreSQL
+conditional aggregation that has no LINQ equivalent.
+
+### 5. EXPLAIN ANALYZE Findings
+
+**Before indexes (natural plan):**
+Seq Scan on job_listings — scanned all 207 rows, filtered 66 inactive
+Seq Scan on applications — scanned all rows per listing
+Execution Time: 0.381ms
+
+**After indexes (forced with SET enable_seqscan = off):**
+Bitmap Index Scan on ix_job_listings_active_closing
+Index Only Scan on ix_applications_listing_id
+Execution Time: 0.361ms
+
+The planner chose Seq Scan naturally because at 207 rows it is genuinely faster.
+At 50,000 rows the index becomes critical — it scans only active rows instead of
+the entire table. `enable_seqscan = off` demonstrates the plan the planner would
+choose at production scale.
+
+**Full-text search plan:**
+Bitmap Index Scan on ix_job_listings_search_vector
+Execution Time: 0.079ms
+GIN index used — no sequential scan. Stemming confirmed: "developer" matched as
+"develop" in the tsvector.
+
+### 6. Hot Path Justification
+
+**`GetActiveListingsAsync`** — 5,000 calls/day with 1,000 daily users × 5 page loads.
+EF Core compiles the LINQ tree on every call. Compiled query eliminates this overhead.
+
+**`IsListingOpenAsync`** — called before every application insert. During a hiring
+surge for a popular listing, hundreds of calls per hour. Compiled query eliminates
+repeated expression compilation at the most write-heavy entry point.
+
+### 7. Constraint Decisions
+
+| Constraint | Rule enforced | Bypass scenario | Consequence without it |
+|---|---|---|---|
+| `ck_job_listings_salary_min_positive` | SalaryMin > 0 | Direct psql INSERT | Negative salaries stored and returned to users |
+| `ck_job_listings_salary_range_valid` | SalaryMax > SalaryMin | Migration script | Inverted salary ranges displayed without error |
+| `ck_job_listings_closing_after_posted` | ClosingDate > PostedAt | Direct psql INSERT | Listings that closed before they opened |
+| `ck_applications_submitted_not_future` | SubmittedAt <= now() | Direct psql INSERT | Future-dated applications bypassing business rules |
+
+### 8. FromSql Parameterisation
+
+**String interpolation inside `SqlQuery<T>` is injection-safe** because EF Core
+intercepts the interpolated string and converts each value into a `DbParameter`.
+PostgreSQL receives `$1`, `$2` placeholders — the value never touches the SQL string.
+
+**`string.Format` or `+` concatenation is not safe** because the value is embedded
+into the SQL string before EF Core sees it — it reaches PostgreSQL as raw SQL text.
+
+### 9. Connection Pool Calculation
+
+**Scenario:** 3 instances, PostgreSQL `max_connections = 100`, 10 reserved for admin.
+Available: 100 - 10 = 90
+Per instance: 90 ÷ 3 = 30
+Maximum Pool Size = 30
+Minimum Pool Size = 2
+
+Minimum of 2 prevents cold-start latency — connections are ready before the first
+request arrives after a quiet period.
+
+**When the pool is exhausted:** new requests wait for a connection. If none is freed
+within the timeout (15 seconds default), the request fails with a timeout exception.
+The client sees a slow response followed by a 500 error with no indication the
+database was the bottleneck.
