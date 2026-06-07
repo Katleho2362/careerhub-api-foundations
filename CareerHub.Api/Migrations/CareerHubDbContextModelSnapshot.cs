@@ -63,7 +63,16 @@ namespace CareerHub.Api.Migrations
 
                     b.HasIndex("ApplicantId");
 
-                    b.ToTable("applications", (string)null);
+                    b.HasIndex("JobListingId")
+                        .HasDatabaseName("ix_applications_listing_id");
+
+                    b.HasIndex("JobListingId", "ApplicantId")
+                        .HasDatabaseName("ix_applications_listing_applicant");
+
+                    b.ToTable("applications", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_applications_submitted_not_future", "\"SubmittedAt\" <= now()");
+                        });
                 });
 
             modelBuilder.Entity("CareerHub.Api.Models.Company", b =>
@@ -137,12 +146,23 @@ namespace CareerHub.Api.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("CompanyId");
+                    b.HasIndex("CompanyId", "IsActive")
+                        .HasDatabaseName("ix_job_listings_company_active");
+
+                    b.HasIndex("IsActive", "ClosingDate")
+                        .HasDatabaseName("ix_job_listings_active_closing");
 
                     b.HasIndex("Title", "CompanyId")
                         .IsUnique();
 
-                    b.ToTable("job_listings", (string)null);
+                    b.ToTable("job_listings", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_job_listings_closing_after_posted", "\"ClosingDate\" > \"PostedAt\"");
+
+                            t.HasCheckConstraint("ck_job_listings_salary_min_positive", "\"SalaryMin\" IS NULL OR \"SalaryMin\" > 0");
+
+                            t.HasCheckConstraint("ck_job_listings_salary_range_valid", "\"SalaryMin\" IS NULL OR \"SalaryMax\" IS NULL OR \"SalaryMax\" > \"SalaryMin\"");
+                        });
                 });
 
             modelBuilder.Entity("CareerHub.Api.Models.Application", b =>
