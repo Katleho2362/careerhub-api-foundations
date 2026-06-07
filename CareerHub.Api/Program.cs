@@ -17,13 +17,20 @@
 
     var builder = WebApplication.CreateBuilder(args);
 
-    // Registers EF Core DbContext and connects it to PostgreSQL.
-    // ASP.NET Core injects this DbContext into controllers when needed.
-    builder.Services.AddDbContext<CareerHubDbContext>(options =>
-    {
-        options.UseNpgsql(
-            builder.Configuration.GetConnectionString("DefaultConnection"));
-    });
+        // Register infrastructure services including the slow query interceptor
+        builder.Services.AddInfrastructure();
+
+        // Registers EF Core DbContext and connects it to PostgreSQL.
+        // Adds the slow query interceptor to capture commands exceeding the threshold.
+        builder.Services.AddDbContext<CareerHubDbContext>((serviceProvider, options) =>
+        {
+            options.UseNpgsql(
+                builder.Configuration.GetConnectionString("DefaultConnection"));
+
+            // Wire in the slow query interceptor
+            var interceptor = serviceProvider.GetRequiredService<SlowQueryInterceptor>();
+            options.AddInterceptors(interceptor);
+        });
 
     // ==========================================
     // Application Services & Repositories
