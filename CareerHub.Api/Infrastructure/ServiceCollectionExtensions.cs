@@ -23,4 +23,13 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IApplicationService, ApplicationService>();
         return services;
     }
+ 
+
+        public static IServiceCollection AddInfrastructure(this IServiceCollection services)
+        {
+            // Singleton — holds no request state, safe to share across all requests
+            services.AddSingleton<SlowQueryInterceptor>();
+            return services;
+        }
+
 }
