@@ -132,6 +132,22 @@ protected override void OnModelCreating(ModelBuilder modelBuilder)
         entity.ToTable(t => t.HasCheckConstraint(
             "ck_job_listings_closing_after_posted",
             "\"ClosingDate\" > \"PostedAt\""));
+
+        // Computed stored tsvector column — PostgreSQL maintains this automatically
+        // Combines Title (weight A — more important) and Description (weight B)
+        // using the english language configuration for stemming and stop words
+        entity.Property(j => j.SearchVector)
+            .HasColumnType("tsvector")
+            .HasComputedColumnSql(
+                "to_tsvector('english', coalesce(\"Title\", '') || ' ' || coalesce(\"Description\", ''))",
+                stored: true);
+
+        // GIN index on the computed tsvector column — required for fast full-text search
+        // GIN (Generalized Inverted Index) is the correct index type for tsvector columns
+        // A B-tree index cannot index tsvector data
+        entity.HasIndex(j => j.SearchVector)
+            .HasDatabaseName("ix_job_listings_search_vector")
+            .HasMethod("GIN"); 
     });
 
     // =====================================================
