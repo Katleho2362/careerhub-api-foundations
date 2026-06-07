@@ -22,6 +22,11 @@ public class JobListingService(
         var listing = await _jobListingRepo.GetListingByIdAsync(id);
         if (listing is null) throw new JobNotFoundException(id);
         return listing;
+    }  
+
+    public async Task<IEnumerable<JobResponse>> SearchListingsAsync(string searchTerm)
+    {
+        return await _jobListingRepo.SearchAsync(searchTerm);
     }
 
     public async Task<JobResponse> CreateListingAsync(CreateJobRequest request)
@@ -94,5 +99,13 @@ public class JobListingService(
             throw new JobNotFoundException(id);
 
         await _jobListingRepo.CloseAsync(id);
+    }
+
+    public async Task<IEnumerable<JobListingStatsResponse>> GetApplicationStatsAsync(Guid companyId)
+    {
+        if (!await _jobListingRepo.CompanyExistsAsync(companyId))
+            throw new CompanyNotFoundException(companyId);
+
+        return await _jobListingRepo.GetApplicationStatsAsync(companyId);
     }
 }
