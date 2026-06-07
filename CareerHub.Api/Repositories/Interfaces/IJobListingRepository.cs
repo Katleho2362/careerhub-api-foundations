@@ -8,6 +8,9 @@ public interface IJobListingRepository
     // Returns all active listings with company name + application count
     Task<IEnumerable<JobResponse>> GetActiveListingsAsync();
 
+    // Full-text search across Title and Description using PostgreSQL tsvector
+    Task<IEnumerable<JobResponse>> SearchAsync(string searchTerm);
+
     // Returns full detail for one listing including applicants
     Task<JobResponse?> GetListingByIdAsync(Guid id);
 
@@ -25,6 +28,10 @@ public interface IJobListingRepository
 
     // Returns the raw entity for update/close operations
     Task<JobListing?> GetEntityByIdAsync(Guid id);
+
+    // Returns per-status application counts and rank for each active listing
+    // owned by the given company. Uses raw SQL for RANK() window function.
+     Task<IEnumerable<JobListingStatsResponse>> GetApplicationStatsAsync(Guid companyId);
 
     Task AddAsync(JobListing listing);
     Task UpdateAsync(JobListing listing);
