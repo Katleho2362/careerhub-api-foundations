@@ -24,6 +24,18 @@ public class JobListingService(
         return listing;
     }  
 
+    public async Task<JobResponse> PatchListingAsync(Guid id, UpdateJobListingRequest request)
+    {
+        return await _jobListingRepo.PatchAsync(id, request);
+    }
+
+    public async Task<PagedResponse<JobResponse>> GetActiveListingsPagedAsync(
+        int page, int pageSize, JobListingFilterQuery filter)
+    {
+        var (items, totalCount) = await _jobListingRepo.GetActiveListingsPagedAsync(page, pageSize, filter);
+        return PagedResponse<JobResponse>.Create(items, page, pageSize, totalCount);
+    }
+
     public async Task<IEnumerable<JobResponse>> SearchListingsAsync(string searchTerm)
     {
         return await _jobListingRepo.SearchAsync(searchTerm);

@@ -5,6 +5,9 @@ namespace CareerHub.Api.Services;
 public interface IJobListingService
 {
     Task<IEnumerable<JobResponse>> GetActiveListingsAsync();
+    Task<PagedResponse<JobResponse>> GetActiveListingsPagedAsync(
+    int page, int pageSize, JobListingFilterQuery filter);
+    Task<JobResponse> PatchListingAsync(Guid id, UpdateJobListingRequest request);
     Task<IEnumerable<JobResponse>> SearchListingsAsync(string searchTerm);
     Task<IEnumerable<JobListingStatsResponse>> GetApplicationStatsAsync(Guid companyId);
     Task<JobResponse> GetListingByIdAsync(Guid id);

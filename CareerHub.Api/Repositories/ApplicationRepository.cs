@@ -20,6 +20,16 @@ public class ApplicationRepository(CareerHubDbContext context) : IApplicationRep
         return await _context.Applicants.AnyAsync(a => a.Id == applicantId);
     }
 
+    public async Task<Application?> GetByIdAsync(
+        Guid jobListingId,
+        Guid applicantId)
+    {
+        return await _context.Applications
+            .FirstOrDefaultAsync(a =>
+                a.JobListingId == jobListingId &&
+                a.ApplicantId == applicantId);
+    }
+
     public async Task<IEnumerable<ApplicationResponse>> GetApplicationsForListingAsync(Guid jobListingId)
     {
         return await _context.Applications

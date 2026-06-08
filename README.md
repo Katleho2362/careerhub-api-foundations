@@ -623,3 +623,154 @@ request arrives after a quiet period.
 within the timeout (15 seconds default), the request fails with a timeout exception.
 The client sees a slow response followed by a 500 error with no indication the
 database was the bottleneck.
+
+# Assignment 3.1 — CareerHub API: Advanced API Patterns for Frontend Consumption
+
+## Overview
+
+This assignment makes the CareerHub API production-ready for frontend consumption. It adds pagination, filtering and sorting, partial updates, API versioning, ETags, CORS, and rate limiting. All changes are at the API boundary — the domain model, service layer, and database schema are untouched.
+
+---
+
+## Part 1 — Written Decisions
+
+### 1. Pagination Strategy
+
+**Strategy chosen: Offset pagination**
+
+Offset pagination was chosen for its simplicity and clean fit with the existing `IQueryable` pipeline. The known tradeoff is page drift — if a new listing is posted between a user fetching page 1 and page 2, that listing shifts subsequent rows and the user may see a duplicate or miss one result.
+
+For a job board this is acceptable. Browsing listings is casual, not transactional. A user occasionally seeing a repeated listing while scrolling is a minor inconvenience, not a critical error. The complexity of cursor pagination is not justified by the stakes of the data.
+
+---
+
+### 2. PATCH Race Condition
+
+**The PUT race condition:**
+
+Two recruiters open the same listing simultaneously. Recruiter A updates the salary and submits a PUT with the full record. Recruiter B, unaware, updates the description and also submits a PUT with the original salary. The server processes both and Recruiter B's PUT silently overwrites Recruiter A's salary change. No error is raised and the wrong salary is now in the database.
+
+**Why the nullable DTO approach resolves this:**
+
+With PATCH, each recruiter only sends the field they changed. Recruiter B's request never includes the salary field, so the server leaves it untouched. Recruiter A's change survives.
+
+**Limitation of the nullable DTO approach:**
+
+It cannot distinguish between "I did not send this field" and "I want to explicitly clear this field to null". If a recruiter wants to remove an expiry date by setting it to null, a nullable PATCH cannot express that intent. JSON Patch (RFC 6902) solves this with explicit operations like `remove`, making the intent unambiguous.
+
+---
+
+### 3. Versioning Strategy
+
+**Breaking vs non-breaking changes:**
+
+A breaking change removes or renames something a client already depends on — existing client code stops working. A non-breaking change adds something new while leaving everything existing intact.
+
+In CareerHub context: adding a new `applicationDeadline` field to the job response is non-breaking — existing clients ignore unknown fields. Renaming `salaryMin` to `minimumSalary` is breaking — every client reading `salaryMin` silently gets nothing.
+
+**What `AssumeDefaultVersionWhenUnspecified = true` does:**
+
+Without it, requests to `/api/jobs` with no version segment return 400 because the middleware cannot determine which version to route to. With it enabled, unversioned requests default to v1. This means all existing clients that called `/api/jobs` before versioning was introduced continue working without any changes — the rollout is non-breaking.
+
+---
+
+### 4. Rate Limiting Algorithm
+
+**Algorithm chosen: Fixed window for `apply`, sliding window for `search`**
+
+For application submission the fixed window with a 60-minute window is appropriate. The threat is bots submitting fake applications at volume, not burst traffic in seconds. A 60-minute window limits a bot to 5 submissions per hour per IP — low enough to be useless for fraud at scale.
+
+Fixed window has a burst vulnerability at window boundaries — a client could send 5 requests just before the window resets and 5 more just after, getting 10 through in a short period. For a 60-minute window this matters less: the burst exposure is narrow relative to the window, and even a burst of 10 applications in 2 minutes is still very low volume.
+
+For the search endpoint a sliding window is used because it eliminates the burst vulnerability entirely, which matters more for an endpoint backed by an expensive GIN index query.
+
+---
+
+## Part 2 — CORS Configuration
+
+CORS is configured with a named policy that permits the Next.js development origin (`http://localhost:3000`) and a production placeholder (`https://careerhub.vercel.app`). It allows any header and method, allows credentials (required for the Authorization header), and exposes `X-Total-Count` so the frontend can read the total listing count from the response headers.
+
+The policy is applied before `UseAuthentication` and `UseAuthorization` in the middleware pipeline.
+
+**Why `AllowAnyOrigin()` combined with `AllowCredentials()` causes a startup exception:**
+
+The CORS specification forbids the wildcard origin when credentials are enabled. Allowing any origin with credentials would mean any website could make authenticated requests to the API on behalf of the user — a direct cross-site request forgery vector. ASP.NET Core enforces this at startup and throws rather than allowing a silent misconfiguration.
+
+---
+
+## Part 3 — Pagination
+
+Pagination is added to `GET /api/v1/jobs` and `GET /api/v1/jobs/company/{companyId}`. The response is wrapped in a `PagedResponse<T>` envelope containing the data, current page, page size, total count, total pages, and booleans for next and previous page availability.
+
+The implementation issues exactly two database queries per request — one count and one data fetch — both against the same `IQueryable` so they are always consistent. Results are ordered by `PostedAt` descending before pagination is applied, ensuring deterministic results. Both endpoints write `X-Total-Count` to the response headers and default to page 1 with 20 results when no parameters are provided.
+
+---
+
+## Part 4 — Filtering and Sorting
+
+`GET /api/v1/jobs` accepts optional filters for location (partial match), employment type (exact match), minimum salary, maximum salary, and company ID. All filters are AND conditions — combining them narrows results. Omitting a filter returns all results.
+
+Sorting is controlled by a `sort` parameter (postedAt, salaryMin, salaryMax, title) and a `dir` parameter (asc, desc). Filters are composed via `IQueryable` — no materialisation occurs before all conditions are applied.
+
+---
+
+## Part 5 — PATCH: Partial Updates
+
+`PATCH /api/v1/jobs/{id}` accepts a partial update where every field is nullable. Only non-null fields are applied to the entity. Salary range validation only runs if either salary field is present in the request. The controller action is a single line.
+
+`PATCH /api/v1/applications/{jobListingId}/{applicantId}/status` advances an application through the review workflow. Permitted transitions are Submitted → UnderReview, UnderReview → Shortlisted or Rejected, and Shortlisted → Offered or Rejected. Any illegal transition returns 400 Bad Request.
+
+---
+
+## Part 6 — API Versioning
+
+URL segment versioning is implemented using `Asp.Versioning.Mvc`. All controllers use the route template `api/v{version:apiVersion}/[controller]` and are annotated with `[ApiVersion(1)]`. Every response includes the `api-supported-versions: 1.0` header. Requests without a version default to v1. Requests to v2 return 404.
+
+**Introducing a v2 endpoint that renames `SalaryMin` to `MinimumSalary`:**
+
+A new v2 response DTO is created with the renamed field. A v2 controller (or v2 action on the existing controller) is added alongside v1, which remains completely unchanged. Both versions run simultaneously for a minimum of 3–6 months. The `api-deprecated-versions: 1.0` header is added to v1 responses to signal to clients that migration is required. After the deprecation period, v1 is removed.
+
+---
+
+## Part 7 — ETags and Conditional Requests
+
+ETags are added to `GET /api/v1/jobs/{id}` and `GET /api/v1/applications/{jobListingId}/{applicantId}`.
+
+For a job listing the ETag is derived from the listing ID, the `PostedAt` timestamp ticks, and `SalaryMin`. For an application it is derived from both IDs and the current status. If the incoming `If-None-Match` header matches the computed ETag, the endpoint returns 304 Not Modified with no body. Otherwise the ETag is written to the response header and the full resource is returned.
+
+**Why the current ETag can produce a stale 304:**
+
+The job listing ETag uses `PostedAt` and `SalaryMin`. If a recruiter updates only the title or description, neither of which contributes to the ETag, the ETag value does not change. A client holding the old ETag receives 304 Not Modified even though the content has changed and displays stale data.
+
+**What a stronger ETag would look like:**
+
+A `LastModifiedAt` timestamp field added to both `JobListing` and `Application`, updated on every write regardless of which field changed. The ETag would be derived solely from this timestamp. Any change to any field updates `LastModifiedAt`, which changes the ETag and correctly invalidates the client cache.
+
+---
+
+## Part 8 — Rate Limiting
+
+Four policies are registered:
+
+| Policy | Algorithm | Limit | Endpoint |
+|---|---|---|---|
+| global | Fixed window | 200 req / 60 sec | All endpoints |
+| search | Sliding window (6 segments) | 30 req / 60 sec | GET /api/v1/jobs/search |
+| apply | Fixed window | 5 req / 60 min | POST /api/v1/applications |
+| post-listing | Fixed window | 10 req / 60 min | POST /api/v1/jobs |
+
+All policies reject immediately with no queue. Rejected requests receive 429 Too Many Requests with a `Retry-After` header and a plain text body stating the number of seconds until the window resets. `UseRateLimiter()` is placed after `UseCors` and before `UseAuthentication`.
+
+**Why the `apply` policy uses a 60-minute window:**
+
+A short window would block legitimate users applying to multiple jobs in quick succession. The fraud target is automated bots submitting hundreds of fake applications per hour, not humans. A 60-minute window limits a bot to 5 submissions per hour per IP — enough to stop fraud at scale without affecting real users.
+
+**Why IP-based rate limiting is insufficient for authenticated requests:**
+
+Attackers can rotate IP addresses through proxies and VPNs to bypass per-IP limits trivially. Multiple legitimate users behind a shared corporate or university IP would also be incorrectly grouped together and blocked collectively.
+
+The correct partition key is the `sub` claim from the JWT — the authenticated user's unique ID. Rate limiting by user ID applies the limit to the identity regardless of IP address. An attacker would need to compromise or register thousands of distinct accounts to bypass it, which is a significantly higher barrier than rotating IPs. It also correctly isolates legitimate users from each other even when they share an IP.
+
+**Why rate limiting reduces connection pool exhaustion:**
+
+The global policy caps each instance at 200 requests per 60-second window. Requests that exceed this are rejected at the rate limiter before they reach the database layer — they never acquire a connection from the pool. This bounds the arrival rate of database-touching requests to a predictable ceiling, making it far less likely that all connections in the pool are held simultaneously under sustained load.
