@@ -9,11 +9,14 @@
     using CareerHub.Api.Infrastructure;        // Needed for AddJobListingFeature / AddApplicationFeature extension methods
     using CareerHub.Api.Services;              // Needed for IJobListingService / IApplicationService in DI validation
     using Microsoft.EntityFrameworkCore;
+    using System.Threading.RateLimiting;
+    using Microsoft.AspNetCore.RateLimiting;
+    using Asp.Versioning;
 
     // Configure Serilog to write logs to the console
     Log.Logger = new LoggerConfiguration()
-        .WriteTo.Console()
-        .CreateLogger();
+            .WriteTo.Console()
+            .CreateLogger();
 
     var builder = WebApplication.CreateBuilder(args);
 
@@ -93,9 +96,12 @@
         options.AddPolicy("FrontendPolicy", policy =>
         {
             policy
-                .WithOrigins("http://localhost:3000")
+                .WithOrigins("http://localhost:3000",     // Next.js dev
+                "https://careerhub.vercel.app")           // Production placeholder
                 .AllowAnyHeader()
-                .AllowAnyMethod();
+                .AllowAnyMethod()
+                .AllowCredentials()                        // Required for Authorization header
+                .WithExposedHeaders("X-Total-Count");     // Frontend can read total count
         });
     });
 
@@ -108,6 +114,81 @@
                 new JsonStringEnumConverter());
         });
 
+        // ==========================================
+        // API Versioning
+        // ==========================================
+        builder.Services.AddApiVersioning(options =>
+            {
+                options.DefaultApiVersion = new ApiVersion(1);
+                options.AssumeDefaultVersionWhenUnspecified = true;
+                options.ReportApiVersions = true;
+            })
+            .AddMvc();  // ← this line is required to enforce version constraints
+
+        // ==========================================
+        // Rate Limiting
+        // ==========================================
+        builder.Services.AddRateLimiter(options =>
+        {
+            // Global: 200 requests / 60 seconds (fixed window)
+            options.AddFixedWindowLimiter("global", o =>
+            {
+                o.PermitLimit = 200;
+                o.Window = TimeSpan.FromSeconds(60);
+                o.QueueLimit = 0;
+            });
+
+            // Search: 30 requests / 60 seconds (sliding window, 6 segments)
+            options.AddSlidingWindowLimiter("search", o =>
+            {
+                o.PermitLimit = 2;
+                //o.PermitLimit = 30;
+                o.Window = TimeSpan.FromSeconds(60);
+                o.SegmentsPerWindow = 6;
+                o.QueueLimit = 0;
+            });
+
+            // Apply: 5 requests / 60 minutes (fixed window)
+            options.AddFixedWindowLimiter("apply", o =>
+            {
+                o.PermitLimit = 5;
+                o.Window = TimeSpan.FromMinutes(60);
+                o.QueueLimit = 0;
+            });
+
+            // Post listing: 10 requests / 60 minutes (fixed window)
+            options.AddFixedWindowLimiter("post-listing", o =>
+            {
+                o.PermitLimit = 10;
+                o.Window = TimeSpan.FromMinutes(60);
+                o.QueueLimit = 0;
+            });
+
+            // 429 response with Retry-After header
+            options.OnRejected = async (context, cancellationToken) =>
+            {
+                context.HttpContext.Response.StatusCode = 429;
+
+                if (context.Lease.TryGetMetadata(
+                    MetadataName.RetryAfter, out var retryAfter))
+                {
+                    context.HttpContext.Response.Headers.RetryAfter =
+                        ((int)retryAfter.TotalSeconds).ToString();
+
+                    context.HttpContext.Response.ContentType = "text/plain";
+                    await context.HttpContext.Response.WriteAsync(
+                        $"Rate limit exceeded. Please retry after {(int)retryAfter.TotalSeconds} seconds.",
+                        cancellationToken);
+                }
+                else
+                {
+                    context.HttpContext.Response.ContentType = "text/plain";
+                    await context.HttpContext.Response.WriteAsync(
+                        "Rate limit exceeded. Please retry after 60 seconds.",
+                        cancellationToken);
+                }
+            };
+        });    
     // Enables OpenAPI document generation
     builder.Services.AddOpenApi();
 
@@ -186,6 +267,9 @@
     // Applies the named CORS policy
     app.UseCors("FrontendPolicy");
 
+    // Enforces rate limiting policies
+    app.UseRateLimiter();
+
     // Redirect HTTP requests to HTTPS
     app.UseHttpsRedirection();
 
@@ -195,8 +279,8 @@
     // Enforces Authorize and role requirements
     app.UseAuthorization();
 
-    // Maps controller endpoints
-    app.MapControllers();
+    // Maps controller endpoints to apply the global policy
+    app.MapControllers().RequireRateLimiting("global");
 
     // Starts the application
     app.Run();
