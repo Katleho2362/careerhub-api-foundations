@@ -141,8 +141,8 @@
             // Search: 30 requests / 60 seconds (sliding window, 6 segments)
             options.AddSlidingWindowLimiter("search", o =>
             {
-                o.PermitLimit = 2;
-                //o.PermitLimit = 30;
+                //o.PermitLimit = 2;
+                o.PermitLimit = 30;
                 o.Window = TimeSpan.FromSeconds(60);
                 o.SegmentsPerWindow = 6;
                 o.QueueLimit = 0;
