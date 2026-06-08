@@ -83,4 +83,68 @@ public class ApplicationService(
         application.Status = ApplicationStatus.Rejected;
         await _applicationRepo.UpdateStatusAsync(application);
     }
+
+   public async Task<ApplicationResponse> PatchStatusAsync(
+    Guid jobListingId,
+    Guid applicantId,
+    UpdateApplicationStatusRequest request)
+{
+    var application = await _applicationRepo.GetByIdAsync(
+        jobListingId,
+        applicantId);
+
+    if (application is null)
+        throw new ApplicationNotFoundException(
+            jobListingId,
+            applicantId);
+
+    // Valid workflow transitions
+    var validTransitions = new Dictionary<ApplicationStatus, List<ApplicationStatus>>
+    {
+        {
+            ApplicationStatus.Submitted,
+            new List<ApplicationStatus>
+            {
+                ApplicationStatus.UnderReview
+            }
+        },
+        {
+            ApplicationStatus.UnderReview,
+            new List<ApplicationStatus>
+            {
+                ApplicationStatus.Shortlisted,
+                ApplicationStatus.Rejected
+            }
+        },
+        {
+            ApplicationStatus.Shortlisted,
+            new List<ApplicationStatus>
+            {
+                ApplicationStatus.Offered,
+                ApplicationStatus.Rejected
+            }
+        }
+    };
+
+    var isValid =
+        validTransitions.ContainsKey(application.Status) &&
+        validTransitions[application.Status].Contains(request.Status);
+
+    if (!isValid)
+    {
+        throw new InvalidStatusTransitionException(
+            application.Status.ToString(),
+            request.Status.ToString());
+    }
+
+    application.Status = request.Status;
+
+    await _applicationRepo.UpdateStatusAsync(application);
+
+    var applications =
+        await _applicationRepo.GetApplicationsForListingAsync(jobListingId);
+
+    return applications.First(a =>
+        a.ApplicantId == applicantId);
+}   
 }

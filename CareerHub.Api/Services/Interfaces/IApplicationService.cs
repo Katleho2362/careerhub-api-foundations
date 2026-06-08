@@ -10,4 +10,8 @@ public interface IApplicationService
     Task<IEnumerable<ApplicationResponse>> GetApplicationsByApplicantAsync(Guid applicantId);
     Task<ApplicationResponse> UpdateStatusAsync(Guid jobListingId, Guid applicantId, ApplicationStatus newStatus);
     Task WithdrawApplicationAsync(Guid jobListingId, Guid applicantId, Guid requestingApplicantId);
+
+    // New — used by PATCH /api/v1/applications/{id}/status
+    Task<ApplicationResponse> PatchStatusAsync( Guid jobListingId,
+    Guid applicantId, UpdateApplicationStatusRequest request);
 }
