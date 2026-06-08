@@ -14,6 +14,9 @@ public interface IApplicationRepository
     // All applications for one job listing
     Task<IEnumerable<ApplicationResponse>> GetApplicationsForListingAsync(Guid jobListingId);
 
+    // Retrieves a specific application for an applicant on a listing
+    Task<Application?> GetByIdAsync(Guid jobListingId, Guid applicantId);
+
     // All applications submitted by one applicant
     Task<IEnumerable<ApplicationResponse>> GetApplicationsByApplicantAsync(Guid applicantId);
 

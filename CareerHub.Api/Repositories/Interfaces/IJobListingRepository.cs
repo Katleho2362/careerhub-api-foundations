@@ -8,9 +8,15 @@ public interface IJobListingRepository
     // Returns all active listings with company name + application count
     Task<IEnumerable<JobResponse>> GetActiveListingsAsync();
 
+    // Paginated active listings — issues exactly two queries (CountAsync + ToListAsync +Filtering)
+    Task<(IEnumerable<JobResponse> Items, int TotalCount)> GetActiveListingsPagedAsync(
+    int page, int pageSize, JobListingFilterQuery filter);
+
+    Task<JobResponse> PatchAsync(Guid id, UpdateJobListingRequest request);
+
     // Full-text search across Title and Description using PostgreSQL tsvector
     Task<IEnumerable<JobResponse>> SearchAsync(string searchTerm);
-
+    
     // Returns full detail for one listing including applicants
     Task<JobResponse?> GetListingByIdAsync(Guid id);
 
