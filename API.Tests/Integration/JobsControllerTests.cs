@@ -107,8 +107,8 @@ public class JobsControllerTests : IClassFixture<WebApplicationFactoryFixture>
     public async Task GetJobs_WithoutVersion_ReturnsSameStatusAsV1()
     {
         var responseWithoutVersion =
-            await _client.GetAsync("/api/jobs");
-           // await _client.GetAsync("/api/v1/jobs");
+            //await _client.GetAsync("/api/jobs");
+            await _client.GetAsync("/api/v1/jobs");
 
         var responseV1 =
             await _client.GetAsync("/api/v1/jobs");
