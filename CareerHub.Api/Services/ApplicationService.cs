@@ -148,3 +148,4 @@ public class ApplicationService(
         a.ApplicantId == applicantId);
 }   
 }
+

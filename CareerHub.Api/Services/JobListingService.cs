@@ -47,6 +47,10 @@ public class JobListingService(
         if (!await _jobListingRepo.CompanyExistsAsync(request.CompanyId))
             throw new CompanyNotFoundException(request.CompanyId);
 
+        // Rule: salary range must be valid
+        if (request.SalaryMax <= request.SalaryMin)
+           throw new ArgumentException("SalaryMax must be greater than SalaryMin.");    
+
         // Rule: closing date must be in the future
         if (request.ClosingDate <= DateTime.UtcNow)
             throw new ArgumentException("Closing date must be in the future.");
