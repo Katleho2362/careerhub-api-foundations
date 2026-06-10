@@ -774,3 +774,97 @@ The correct partition key is the `sub` claim from the JWT — the authenticated 
 **Why rate limiting reduces connection pool exhaustion:**
 
 The global policy caps each instance at 200 requests per 60-second window. Requests that exceed this are rejected at the rate limiter before they reach the database layer — they never acquire a connection from the pool. This bounds the arrival rate of database-touching requests to a predictable ceiling, making it far less likely that all connections in the pool are held simultaneously under sustained load.
+---
+
+# Assignment 3.1  CareerHub API — Testing & CI/CD
+
+---
+
+## Part 1 — Written Decisions
+
+### 1. Unit vs Integration Test Decisions
+
+| Behaviour | Test Type | Reason |
+|---|---|---|
+| Salary validation in `CreateAsync` | Unit | Pure logic, no infrastructure needed. Integration can't tell *where* validation fired. |
+| `[Authorize]` on `POST /api/v1/jobs` | Integration | Middleware enforces it. Unit tests bypass the HTTP pipeline entirely — 401 never fires. |
+| `SalaryMax > SalaryMin` DB constraint | Repository (TestContainers) | Check constraints are DDL. In-memory provider ignores them silently. |
+| `api-supported-versions` header | Integration | Header is emitted by versioning middleware. Unit tests return plain `ActionResult` with no headers. |
+| `HasAppliedAsync` compiled query | Repository (TestContainers) | Compiled against the registered provider. In-memory plan is not a PostgreSQL plan — translation bugs are invisible. |
+
+### 2. Why In-Memory EF Core Is Insufficient
+
+**Check constraints** — `HasCheckConstraint` is stored in model metadata but never evaluated by the in-memory provider. Invalid rows save silently instead of throwing.
+
+**`tsvector` computed column / full-text search** — `HasComputedColumnSql` is provider-specific SQL. The in-memory provider never evaluates it, so `SearchVector` doesn't exist and `EF.Functions.ToTsQuery` cannot be translated.
+
+**`EF.CompileAsyncQuery`** — The compiled expression tree is translated once against the registered provider. An in-memory plan never produces SQL, so bugs in the PostgreSQL translation are completely invisible.
+
+### 3. Test Isolation
+
+A test is isolated when its result depends only on the code under test and the data it seeds itself — not on run order or shared state.
+
+The shared-row problem: if Test A inserts 3 listings and Test B counts all listings expecting exactly 3, Test B fails whenever anything else runs first. The result is non-deterministic and impossible to diagnose.
+
+TestContainers fixes this by running a real PostgreSQL container where each test seeds its own rows scoped to unique GUIDs. No test reads data it didn't insert, so order and parallelism don't matter.
+
+### 4. CI Pipeline vs Local Testing
+
+Local tests only prove your code passes on your machine today. CI proves the merged result passes on a clean machine on every push.
+
+The specific failure CI catches: Developer A and Developer B both pass local tests on their own branches. When both branches merge into `main`, they conflict — incompatible changes to the same service, or clashing migrations. Neither developer's local run ever tested the merged state. CI runs against the merged commit and catches it before it lands.
+
+---
+
+## Part 6 — Branch Protection
+
+**Steps to configure on `main`:**
+1. GitHub → Settings → Branches → Add rule → enter `main`
+2. Enable **Require status checks to pass** → search for and select **`Build and Test CareerHub API`**
+3. Enable **Require branches to be up to date before merging**
+4. Enable **Do not allow bypassing the above settings**
+5. Save
+
+**Why "up to date" matters:** Status checks alone prove CI passed at the time of last push. If another PR merges into `main` after your CI run, your branch is stale. This setting forces a re-run against the current `main` before merging, catching conflicts that status checks alone miss.
+
+**Why "do not allow bypassing" matters:** Without it, admins can merge despite failing checks. A rule that can be bypassed is not enforced. This setting makes the protection unconditional for everyone.
+
+---
+
+## Part 7 — Coverage Analysis
+
+### Test Pyramid
+
+```
+        /\
+       /IT\       9 tests  — Integration (WebApplicationFactory)
+      /----\
+     / RT   \     10 tests — Repository (TestContainers)
+    /--------\
+   /    UT    \   10 tests — Unit (Service layer)
+  /------------\
+```
+
+The distribution is intentionally balanced because each layer covers genuinely different behaviour. In a larger system the unit layer would dominate. The high repository count reflects CareerHub's reliance on PostgreSQL-specific features (constraints, full-text search, compiled queries) that cannot be verified at any other layer.
+
+### What Unit Tests Don't Cover
+
+**HTTP response shape and headers** — Unit tests call service methods and get C# objects back. They cannot assert on JSON serialisation, status codes, or headers like `ETag` and `X-Total-Count`. That requires an integration test.
+
+**Database constraint enforcement independent of the service** — Mocks return whatever the test configures. If the service guard is removed, the unit test catches it — but the DB check constraint as a last line of defence can only be proven by inserting directly via `DbContext`, bypassing all service logic.
+
+### What Integration Tests Can't Verify
+
+WebApplicationFactory tests run the full pipeline but cannot distinguish between the service catching an error and the database catching it. If salary validation fires in the service, the test sees a 400 — but it cannot prove the check constraint itself would fire if the service guard were removed. That requires a repository test that bypasses the service entirely.
+
+### What Repository Tests Can't Catch
+
+Repository tests have no controller, middleware, or serialisation. A bug where the correct data is returned from the repository but the controller maps it to the wrong DTO field or returns the wrong status code is completely invisible. That belongs to the integration layer.
+
+### Test Naming Convention
+
+`MethodName_Scenario_ExpectedResult` — three examples from this suite:
+
+- **`CreateAsync_WhenSalaryMaxLessThanSalaryMin_ThrowsArgumentException`** — which method, which condition, what happens. Named `Test1`, a failure tells you nothing.
+- **`UpdateStatusAsync_WhenTransitionIsIllegal_ThrowsAndNeverCallsUpdate`** — two assertions are signalled in the name itself: exception thrown *and* repo never called.
+- **`GetActiveListingsPagedAsync_ResultsAreOrderedByPostedAtDescending`** — the exact ordering expectation is the name. Without the convention you'd need to open the file to know what was being checked.

@@ -1,9 +1,12 @@
 {
   "version": 2,
-  "dgSpecHash": "Ns0hX9PRdU8=",
+  "dgSpecHash": "Sau+bVPWRn8=",
   "success": true,
   "projectFilePath": "D:\\Documents\\Work\\Bitcube\\careerhub-api-foundations\\CareerHub.Api\\CareerHub.Api.csproj",
   "expectedPackageFiles": [
+    "C:\\Users\\katle\\.nuget\\packages\\asp.versioning.abstractions\\10.0.0\\asp.versioning.abstractions.10.0.0.nupkg.sha512",
+    "C:\\Users\\katle\\.nuget\\packages\\asp.versioning.http\\10.0.0\\asp.versioning.http.10.0.0.nupkg.sha512",
+    "C:\\Users\\katle\\.nuget\\packages\\asp.versioning.mvc\\10.0.0\\asp.versioning.mvc.10.0.0.nupkg.sha512",
     "C:\\Users\\katle\\.nuget\\packages\\humanizer.core\\2.14.1\\humanizer.core.2.14.1.nupkg.sha512",
     "C:\\Users\\katle\\.nuget\\packages\\microsoft.aspnetcore.authentication.jwtbearer\\10.0.8\\microsoft.aspnetcore.authentication.jwtbearer.10.0.8.nupkg.sha512",
     "C:\\Users\\katle\\.nuget\\packages\\microsoft.aspnetcore.openapi\\10.0.8\\microsoft.aspnetcore.openapi.10.0.8.nupkg.sha512",
