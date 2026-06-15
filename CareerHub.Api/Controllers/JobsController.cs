@@ -1,3 +1,4 @@
+
 using CareerHub.Api.DTOs;
 using CareerHub.Api.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -19,6 +20,12 @@ public class JobsController(IJobListingService jobListingService) : ControllerBa
     // GET /api/jobs?page=1&pageSize=20&location=cape+town&sort=salaryMin&dir=asc
     // =====================================================
     [HttpGet]
+    [EndpointSummary("List all job listings")]
+    [EndpointDescription(
+        "Returns a paginated list of active job listings. " +
+        "The total number of results is included in the X-Total-Count response header. " +
+        "Default page size is 20. " +
+        "Available sort options: postedAt, salaryMin, salaryMax, title.")]
     public async Task<IActionResult> GetJobs(
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
@@ -64,6 +71,11 @@ public class JobsController(IJobListingService jobListingService) : ControllerBa
         // =====================================================
         [EnableRateLimiting("search")]
         [HttpGet("search")]
+        [EndpointSummary("Full-text job search")]
+        [EndpointDescription(
+            "Searches active job listings by keyword. " +
+            "This endpoint is rate-limited to 30 requests per 60-second sliding window per IP. " +
+            "Exceeding the limit returns 429 Too Many Requests with a Retry-After header.")]
         public async Task<IActionResult> SearchJobs([FromQuery] string q)
         {
             var results = await _jobListingService.SearchListingsAsync(q);
@@ -84,13 +96,13 @@ public class JobsController(IJobListingService jobListingService) : ControllerBa
     // =====================================================
     // GET JOB BY ID
     // =====================================================
-    // [HttpGet("{id:guid}")]
-    // public async Task<IActionResult> GetJobById(Guid id)
-    // {
-    //     var job = await _jobListingService.GetListingByIdAsync(id);
-    //     return Ok(job);
-    // }
     [HttpGet("{id:guid}")]
+    [EndpointSummary("Get a job listing by ID")]
+    [EndpointDescription(
+        "Returns a single active job listing by its unique identifier. " +
+        "Supports ETags for conditional requests: the ETag value is returned in the response header. " +
+        "Send If-None-Match with the ETag value on subsequent requests; " +
+        "the server returns 304 Not Modified when the resource has not changed, saving bandwidth.")]
     public async Task<IActionResult> GetJobById(Guid id)
     {
         var job = await _jobListingService.GetListingByIdAsync(id);
@@ -140,3 +152,4 @@ public class JobsController(IJobListingService jobListingService) : ControllerBa
         return NoContent();
     }
 }
+
