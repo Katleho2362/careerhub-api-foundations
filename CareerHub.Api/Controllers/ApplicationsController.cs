@@ -1,5 +1,4 @@
 
-
 using Asp.Versioning;
 using CareerHub.Api.DTOs;
 using CareerHub.Api.Enums;
@@ -62,6 +61,16 @@ public class ApplicationsController(IApplicationService applicationService) : Co
     // =====================================================
     [Authorize(Roles = "Employer")]
     [HttpPatch("api/v{version:apiVersion}/applications/{jobListingId:guid}/{applicantId:guid}/status")]
+    [EndpointSummary("Update application status")]
+    [EndpointDescription(
+        "Updates the status of a job application. " +
+        "Legal status transitions: " +
+        "Submitted → UnderReview, " +
+        "UnderReview → Interviewed, " +
+        "Interviewed → Offered, " +
+        "Offered → Accepted or Rejected, " +
+        "any status → Withdrawn. " +
+        "An illegal transition returns 422 Unprocessable Entity.")]
     public async Task<IActionResult> PatchApplicationStatus(
         Guid jobListingId,
         Guid applicantId,
@@ -113,3 +122,5 @@ public class ApplicationsController(IApplicationService applicationService) : Co
         return NoContent();
     }
 }
+
+
