@@ -868,3 +868,165 @@ Repository tests have no controller, middleware, or serialisation. A bug where t
 - **`CreateAsync_WhenSalaryMaxLessThanSalaryMin_ThrowsArgumentException`** — which method, which condition, what happens. Named `Test1`, a failure tells you nothing.
 - **`UpdateStatusAsync_WhenTransitionIsIllegal_ThrowsAndNeverCallsUpdate`** — two assertions are signalled in the name itself: exception thrown *and* repo never called.
 - **`GetActiveListingsPagedAsync_ResultsAreOrderedByPostedAtDescending`** — the exact ordering expectation is the name. Without the convention you'd need to open the file to know what was being checked.
+
+---
+
+# CareerHub Frontend
+
+A Next.js 15 + TypeScript + Tailwind frontend for CareerHub that allows users to browse and select job listings.
+
+---
+
+## Part 1 — Conceptual Questions
+
+### 1. Lifting State Up
+If `selectedId` is stored inside `JobList`, only `JobList` can access it. Since `Home` also needs the selected job to display the summary panel, the state must be moved to the nearest common ancestor, which is `Home`.
+
+Data flow:
+- User clicks `JobCard`
+- `JobCard` calls `onSelect(id)`
+- `Home` updates `selectedId`
+- React re-renders
+- Updated state flows down via props to `JobList` and summary panel
+
+---
+
+### 2. Re-render Cycle
+Calling `setSelectedId` causes `Home` to re-render. Since `JobList` and `JobCard` are children of `Home`, they also re-render by default.
+
+Re-rendering does **not** mean DOM updates. React compares old and new output and only updates DOM elements that changed.
+
+React 19 improves performance using compiler-based memoization to skip unnecessary renders.
+
+---
+
+### 3. Union Types vs String
+Using:
+
+```ts
+type EmploymentType = "FullTime" | "PartTime" | "Contract" | "Internship";
+```
+
+prevents invalid values.
+
+Example 1:
+Typing `"Fulltime"` causes a TypeScript error during development.
+
+Example 2:
+If the API adds `"Freelance"` and the frontend updates the union, TypeScript shows compile errors wherever the new type is not handled.
+
+This catches bugs before runtime.
+
+---
+
+### 4. The && Rendering Trap
+This:
+
+```tsx
+{job.applicantCount && <p>{job.applicantCount} applicants</p>}
+```
+
+renders `0` because `&&` returns the left value when falsy, and React renders `0` as text.
+
+Correct solutions:
+
+```tsx
+{job.applicantCount > 0 && <p>...</p>}
+```
+
+or
+
+```tsx
+{job.applicantCount > 0 ? <p>...</p> : null}
+```
+
+Preferred:
+
+```tsx
+job.applicantCount > 0 && ...
+```
+
+because it is clear and readable.
+
+---
+
+## Why Static Data First
+Using hardcoded data allows UI development without depending on API availability. Components become data-source agnostic, meaning they work the same whether data comes from static arrays or a backend API.
+
+---
+
+## Type Contract with Backend
+`JobListing` in the frontend must match `JobListingResponse.cs` in the backend.
+
+If the backend renames:
+
+```cs
+salaryMin
+```
+
+to
+
+```cs
+minimumSalary
+```
+
+without updating the frontend:
+- TypeScript compilation fails
+- Any code using `salaryMin` shows errors
+
+This prevents runtime failures.
+
+---
+
+## Component Responsibility Table
+
+| Component | Owns State | Receives via Props |
+|-----------|------------|-------------------|
+| Home | selectedId | None |
+| JobList | None | jobs, selectedId, onSelect |
+| JobCard | None | job, isSelected, onSelect |
+
+---
+
+## Build Gate
+Project builds successfully with:
+- 0 TypeScript errors
+- 0 ESLint errors
+
+Run:
+
+```bash
+npm run build
+```
+
+Paste final build output below:
+
+```bash
+
+> careerhub-frontend@0.1.0 build
+> next build
+
+▲ Next.js 16.2.9 (Turbopack)
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 5.3s
+✓ Finished TypeScript in 4.4s    
+✓ Collecting page data using 5 workers in 1544ms    
+✓ Generating static pages using 5 workers (4/4) in 896ms
+✓ Finalizing page optimization in 50ms    
+
+Route (app)
+┌ ○ /
+└ ○ /_not-found
+
+
+○  (Static)  prerendered as static content
+```
+
+---
+
+## Tech Stack
+- Next.js 15
+- React
+- TypeScript
+- Tailwind CSS
