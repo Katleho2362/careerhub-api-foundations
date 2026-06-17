@@ -141,6 +141,11 @@ body {
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
+  --canvas: #15332e;      /* page background, was --teal-dark */
+  --paper: #1f4b43;       /* card surface, was --teal — lighter than canvas so cards still read as "raised" */
+  --ink: #f3efe6;         /* primary text, near --canvas's light-mode value */
+  --line: #316058;        /* borders/dividers, a step lighter than --paper */
+  --muted-text: #9fb3ac;  /* secondary text */
 }
 
 @layer base {
