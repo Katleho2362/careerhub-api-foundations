@@ -1030,3 +1030,111 @@ Route (app)
 - React
 - TypeScript
 - Tailwind CSS
+
+---
+
+## CareerHub Frontend — Assignment 1.2
+
+
+## 1. The shadcn/ui ownership model
+
+The shadcn/ui component model differs significantly from traditional component libraries such as MUI. In libraries like MUI, component source code is installed as a package dependency and stored inside the node_modules directory. These components are maintained externally, meaning that any library update may introduce breaking changes that affect all usages across the application. For example, if a new version renames a prop such as variant to intent, every component using the old prop name may fail immediately after upgrading.
+
+shadcn/ui avoids this issue because components are generated directly into the project as source files. After installation, components such as badge.tsx exist inside the repository under src/components/ui. This means the component becomes part of the project codebase and is fully owned by the developer. Any updates released by shadcn/ui do not automatically affect the project. Instead, upgrades are manual and intentional, allowing developers to review changes before applying them. This approach provides greater stability and control over the UI layer.
+
+## 2. Why the cn utility exists
+
+The cn utility exists to simplify and improve conditional Tailwind CSS class composition. It combines the functionality of clsx, which conditionally joins class names, with tailwind-merge, which resolves conflicting Tailwind utility classes.
+
+This is particularly useful when multiple conditional classes affect the same CSS property. For example, in the JobCard component, classes such as ring-1 and ring-2 both control ring width. If both classes are concatenated using plain string operations, both may remain in the final class list, creating ambiguity regarding which style should take precedence. Since Tailwind generates CSS rules separately, the final visual result may depend on stylesheet order rather than developer intention.
+
+The tailwind-merge portion of cn prevents this issue by understanding Tailwind’s utility groups and removing earlier conflicting classes. As a result, only the intended class remains, making styling more predictable, readable, and maintainable.
+
+## 3. The event handler versus useEffect argument
+
+Although session storage operations can be placed inside event handlers such as click functions, this approach has important limitations. Writing persistence logic directly inside a click handler works only when the user actively interacts with the UI. It cannot handle scenarios where state must be restored automatically during component initialization.
+
+The major limitation of the event-handler approach becomes evident during page refresh. When the browser reloads, no click event occurs. Consequently, no code inside the click handler executes, making it impossible to restore previously selected data. This negatively affects user experience because a user may lose context after refreshing or reopening the application.
+
+The useEffect hook provides a better solution because it allows code to execute during component lifecycle events. One effect can restore the selected job when the page loads, while another can update session storage whenever the selected job changes. This separation ensures proper synchronization between React state and browser storage.
+
+## 4. The Source of Truth for Dark Mode
+
+The ThemeToggle component maintains an isDark state variable, but this state does not directly control the visual theme of the application. Its primary purpose is to determine what text or label should be displayed on the toggle button.
+
+The true source of truth for dark mode is the presence or absence of the dark class on the root <html> element. Tailwind’s dark mode utilities operate by checking whether this class exists. Once the class is applied, all dark: styles across the application automatically become active.
+
+This design has important implications. If the ThemeToggle component is unmounted and later remounted, its React state resets because local component state is not preserved across unmounts. However, the dark class on the <html> element remains unchanged because it exists outside the component tree. As a result, the entire application remains visually in dark mode even if the toggle component temporarily loses state. The component must therefore synchronize its state with the DOM or persisted storage whenever it mounts.
+
+## shadcn/ui Setup
+
+The shadcn/ui library was successfully installed and configured within the CareerHub frontend project. The configuration included enabling class-based dark mode support and adding the Badge component required for this assignment.
+
+Three important files were generated during setup: the components.json configuration file at the project root, the src/lib/utils.ts file exporting the cn utility, and the src/components/ui/badge.tsx file containing the Badge component implementation.
+
+Within badge.tsx, the function responsible for mapping badge variants to Tailwind classes is badgeVariants. This function uses the Class Variance Authority (CVA) library, which simplifies the process of defining reusable style variants for components.
+
+## JobStatusBadge Component
+
+A new reusable component named JobStatusBadge was created to centralize all badge-related rendering logic. This component serves two responsibilities: rendering employment type badges and rendering inactive job status badges.
+
+Each employment type—Full-time, Part-time, Contract, and Internship—was assigned a unique color combination to ensure clear visual distinction. The mapping between employment type and color scheme is defined exclusively within JobStatusBadge, ensuring there is a single source of truth for badge styling.
+
+The component also handles inactive listings. When isActive is false, an additional badge is rendered to communicate that the listing is no longer accepting applications. When the listing remains active, no status badge is rendered, and no hidden DOM element exists.
+
+By extracting this logic into a dedicated component, the JobCard component becomes cleaner and easier to maintain.
+
+## Tailwind Design Improvements
+
+Significant styling improvements were made to both JobCard and JobList. All template literal-based class compositions were replaced with the cn utility to improve readability and prevent Tailwind conflicts.
+
+Dark mode variants were added to every color-related class, including text, backgrounds, borders, shadows, and rings. This ensures complete visual consistency in both light and dark modes.
+
+Special visual states were also introduced. Selected job cards now display a distinct highlighted appearance, making user selection immediately visible. Expired job cards were styled differently to visually communicate inactive status at the card level in addition to the status badge.
+
+These changes collectively improved the professionalism and usability of the interface.
+
+## Persisting Selected Jobs with useEffect
+
+Two separate useEffect hooks were added to page.tsx to persist the selected job.
+
+The first effect runs once when the component mounts. Its purpose is to read the stored job ID from session storage and restore the selected job if the ID still exists in the current dataset. Invalid or outdated IDs are ignored.
+
+The second effect runs whenever selectedId changes. If a job is selected, the job ID is stored in session storage. If no job is selected, the storage key is removed to prevent stale data.
+
+Keeping these effects separate is important because they serve different responsibilities. Merging them could cause the save logic to run before restoration is complete, potentially overwriting valid persisted data.
+
+```md
+## Effect Responsibilities
+
+| Effect | Dependency Array | Runs When |
+|--------|------------------|-----------|
+| Restore selected job | `[]` | Runs once after initial mount |
+| Persist selected job | `[selectedId]` | Runs whenever the selected job changes |
+| If both effects were merged | Combined dependencies | Could overwrite stored state before restore completes |
+```
+
+## Dark Mode Toggle Implementation
+
+A ThemeToggle component was created to manage theme switching across the application. This component toggles the dark class on document.documentElement, which activates or deactivates Tailwind’s dark mode styles.
+
+On initial mount, the component checks local storage for a previously saved user preference. If no stored preference exists, the component falls back to the operating system theme preference using window.matchMedia.
+
+Whenever the user changes the theme, the preference is saved to local storage. This ensures theme persistence across refreshes and browser sessions. The button also displays dynamic text based on the current theme and includes an accessible aria-label describing the action it performs.
+
+Additionally, the application header, page background, summary panel, cards, and badges were updated to support both light and dark themes.
+
+## Component Extraction Rationale
+
+The decision to extract JobStatusBadge into a standalone component aligns with the Single Responsibility Principle. This principle states that each component should focus on one clearly defined responsibility.
+
+If badge logic remained inside JobCard, changes to badge styling or employment type color mappings would require modifications within multiple conditional blocks. This increases complexity and maintenance effort.
+
+With the extracted component, all badge-related styling and behavior exist in one place. If the employment type color scheme changes in the future, only the JobStatusBadge component requires modification. This significantly improves maintainability, reusability, and code clarity.
+
+## Build Verification
+
+The final application successfully passed all required validation checks. Running the build command produced zero TypeScript errors and zero ESLint errors, confirming that the project satisfies the assignment requirements.
+
+npm run build
+
