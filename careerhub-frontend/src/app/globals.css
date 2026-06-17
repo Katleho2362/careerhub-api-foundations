@@ -1,1 +1,30 @@
 @import "tailwindcss";
+
+:root {
+  --ink: #1c2321;
+  --teal: #1f4b43;
+  --teal-dark: #15332e;
+  --canvas: #f5f2ea;
+  --canvas-dim: #c9d6d1;
+  --paper: #ffffff;
+  --amber: #e8a33d;
+  --clay: #c06b5c;
+  --plum: #6b5b95;
+  --line: #e3ddd0;
+  --muted: #8b8478;
+}
+
+body {
+  background-color: var(--canvas);
+  color: var(--ink);
+  font-family: var(--font-inter), sans-serif;
+}
+
+.font-display {
+  font-family: var(--font-space-grotesk), sans-serif;
+}
+
+.font-meta {
+  font-family: var(--font-plex-mono), monospace;
+  letter-spacing: 0.04em;
+}
