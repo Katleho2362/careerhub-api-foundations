@@ -1,0 +1,119 @@
+"use client";
+
+import { useState } from "react";
+import { JobListing } from "@/types";
+import { JobList } from "@/components/JobList";
+
+const DAY = 86_400_000;
+
+const jobs: JobListing[] = [
+  {
+    id: "b3a1e2c4-1234-4a1b-8c2d-111111111111",
+    title: "Junior Frontend Developer",
+    description: "Build and maintain customer-facing React features.",
+    companyName: "Takealot",
+    location: "Cape Town",
+    type: "FullTime",
+    salaryMin: 25000,
+    salaryMax: 35000,
+    salaryDisplay: "R25 000 – R35 000 pm",
+    postedAt: new Date(Date.now()).toISOString(),
+    closingDate: new Date(Date.now() + 21 * DAY).toISOString(),
+    applicationCount: 0,
+  },
+  {
+    id: "b3a1e2c4-1234-4a1b-8c2d-222222222222",
+    title: "Backend Engineer (.NET)",
+    description: "Design and maintain core API services.",
+    companyName: "Discovery",
+    location: "Johannesburg",
+    type: "FullTime",
+    salaryMin: 45000,
+    salaryMax: 65000,
+    salaryDisplay: "R45 000 – R65 000 pm",
+    postedAt: new Date(Date.now() - 3 * DAY).toISOString(),
+    closingDate: new Date(Date.now() + 14 * DAY).toISOString(),
+    applicationCount: 12,
+  },
+  {
+    id: "b3a1e2c4-1234-4a1b-8c2d-333333333333",
+    title: "UI/UX Design Intern",
+    description: "Support the design team on research and prototyping.",
+    companyName: "Naspers",
+    location: "Remote",
+    type: "Internship",
+    salaryMin: 8000,
+    salaryMax: 12000,
+    salaryDisplay: "R8 000 – R12 000 pm",
+    postedAt: new Date(Date.now() - 10 * DAY).toISOString(),
+    closingDate: new Date(Date.now() + 30 * DAY).toISOString(),
+    applicationCount: 4,
+  },
+  {
+    id: "b3a1e2c4-1234-4a1b-8c2d-444444444444",
+    title: "DevOps Contractor",
+    description: "Manage CI/CD pipelines and cloud infrastructure.",
+    companyName: "Standard Bank",
+    location: "Johannesburg",
+    type: "Contract",
+    salaryMin: 60000,
+    salaryMax: 90000,
+    salaryDisplay: "R60 000 – R90 000 pm",
+    postedAt: new Date(Date.now() - 45 * DAY).toISOString(),
+    closingDate: new Date(Date.now() - 5 * DAY).toISOString(),
+    applicationCount: 31,
+  },
+  {
+    id: "b3a1e2c4-1234-4a1b-8c2d-555555555555",
+    title: "Part-Time QA Tester",
+    description: "Manual and automated testing across web platforms.",
+    companyName: "Yoco",
+    location: "Cape Town",
+    type: "PartTime",
+    salaryMin: 15000,
+    salaryMax: 20000,
+    salaryDisplay: "R15 000 – R20 000 pm",
+    postedAt: new Date(Date.now() - 1 * DAY).toISOString(),
+    closingDate: new Date(Date.now() + 10 * DAY).toISOString(),
+    applicationCount: 2,
+  },
+  {
+    id: "b3a1e2c4-1234-4a1b-8c2d-666666666666",
+    title: "Data Analyst",
+    description: "Turn transaction data into actionable reporting.",
+    companyName: "MTN",
+    location: "Johannesburg",
+    type: "FullTime",
+    salaryMin: null,
+    salaryMax: null,
+    salaryDisplay: "Market related",
+    postedAt: new Date(Date.now() - 60 * DAY).toISOString(),
+    closingDate: new Date(Date.now() + 7 * DAY).toISOString(),
+    applicationCount: 7,
+  },
+];
+
+export default function Home() {
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selectedJob = jobs.find((job) => job.id === selectedId) ?? null;
+
+  function handleSelect(id: string) {
+    setSelectedId((current) => (current === id ? null : id));
+  }
+
+  return (
+    <main className="mx-auto max-w-5xl p-8">
+      <h1 className="mb-6 text-2xl font-bold">CareerHub</h1>
+
+      {selectedJob && (
+        <div className="mb-6 rounded-lg border border-blue-300 bg-blue-50 p-4">
+          <p className="text-sm text-blue-600">Selected listing</p>
+          <p className="font-semibold">{selectedJob.title}</p>
+          <p className="text-sm text-gray-600">{selectedJob.companyName}</p>
+        </div>
+      )}
+
+      <JobList jobs={jobs} selectedId={selectedId} onSelect={handleSelect} />
+    </main>
+  );
+}
