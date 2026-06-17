@@ -3,15 +3,17 @@
 import { useState } from "react";
 import { JobListing } from "@/types";
 import { JobList } from "@/components/JobList";
+import { Sidebar, ViewFilter } from "@/components/Sidebar";
+import { isJobActive } from "@/lib/job-status";
 
 const DAY = 86_400_000;
 
 const jobs: JobListing[] = [
-  {
+   {
     id: "b3a1e2c4-1234-4a1b-8c2d-111111111111",
     title: "Junior Frontend Developer",
     description: "Build and maintain customer-facing React features.",
-    companyName: "Takealot",
+    companyName: "Bitcube",
     location: "Cape Town",
     type: "FullTime",
     salaryMin: 25000,
@@ -25,7 +27,7 @@ const jobs: JobListing[] = [
     id: "b3a1e2c4-1234-4a1b-8c2d-222222222222",
     title: "Backend Engineer (.NET)",
     description: "Design and maintain core API services.",
-    companyName: "Discovery",
+    companyName: "AMAZON",
     location: "Johannesburg",
     type: "FullTime",
     salaryMin: 45000,
@@ -39,7 +41,7 @@ const jobs: JobListing[] = [
     id: "b3a1e2c4-1234-4a1b-8c2d-333333333333",
     title: "UI/UX Design Intern",
     description: "Support the design team on research and prototyping.",
-    companyName: "Naspers",
+    companyName: "NET CAMPUS GROUP",
     location: "Remote",
     type: "Internship",
     salaryMin: 8000,
@@ -67,7 +69,7 @@ const jobs: JobListing[] = [
     id: "b3a1e2c4-1234-4a1b-8c2d-555555555555",
     title: "Part-Time QA Tester",
     description: "Manual and automated testing across web platforms.",
-    companyName: "Yoco",
+    companyName: "MLIFI SOLUTIONS",
     location: "Cape Town",
     type: "PartTime",
     salaryMin: 15000,
@@ -95,25 +97,42 @@ const jobs: JobListing[] = [
 
 export default function Home() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [view, setView] = useState<ViewFilter>("all");
   const selectedJob = jobs.find((job) => job.id === selectedId) ?? null;
+
+  const openJobs = jobs.filter(isJobActive);
+  const closedJobs = jobs.filter((j) => !isJobActive(j));
+  const visibleJobs = view === "open" ? openJobs : view === "closed" ? closedJobs : jobs;
 
   function handleSelect(id: string) {
     setSelectedId((current) => (current === id ? null : id));
   }
 
   return (
-    <main className="mx-auto max-w-5xl p-8">
-      <h1 className="mb-6 text-2xl font-bold">CareerHub</h1>
+    <div className="flex min-h-screen">
+      <Sidebar view={view} onViewChange={setView} openCount={openJobs.length} closedCount={closedJobs.length} />
 
-      {selectedJob && (
-        <div className="mb-6 rounded-lg border border-blue-300 bg-blue-50 p-4">
-          <p className="text-sm text-blue-600">Selected listing</p>
-          <p className="font-semibold">{selectedJob.title}</p>
-          <p className="text-sm text-gray-600">{selectedJob.companyName}</p>
+      <main className="flex-1 px-6 py-10 md:px-12">
+        <div className="mx-auto max-w-6xl">
+          <p className="font-meta text-xs uppercase text-[var(--muted)]">CareerHub</p>
+          <h1 className="font-display mt-1 text-3xl font-semibold tracking-tight text-[var(--ink)]">
+            Find your next role.
+          </h1>
+
+          {selectedJob && (
+            <div className="relative mt-6 overflow-hidden rounded-xl bg-[var(--paper)] py-4 pl-6 pr-5 ring-1 ring-[var(--line)]">
+              <span className="absolute top-0 left-0 h-full w-1.5 bg-[var(--amber)]" />
+              <p className="font-meta text-[11px] uppercase text-[var(--muted)]">Selected listing</p>
+              <p className="font-display mt-1 font-semibold text-[var(--ink)]">{selectedJob.title}</p>
+              <p className="text-sm text-[var(--muted)]">{selectedJob.companyName}</p>
+            </div>
+          )}
+
+          <div className="mt-8">
+            <JobList jobs={visibleJobs} selectedId={selectedId} onSelect={handleSelect} />
+          </div>
         </div>
-      )}
-
-      <JobList jobs={jobs} selectedId={selectedId} onSelect={handleSelect} />
-    </main>
+      </main>
+    </div>
   );
 }
