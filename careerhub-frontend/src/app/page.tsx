@@ -114,7 +114,7 @@ export default function Home() {
 
       <main className="flex-1 px-6 py-10 md:px-12">
         <div className="mx-auto max-w-6xl">
-          <p className="font-meta text-xs uppercase text-[var(--muted)]">CareerHub</p>
+          <p className="font-meta text-xs uppercase text-[var(--muted-text)]">CareerHub</p>
           <h1 className="font-display mt-1 text-3xl font-semibold tracking-tight text-[var(--ink)]">
             Find your next role.
           </h1>
@@ -122,9 +122,9 @@ export default function Home() {
           {selectedJob && (
             <div className="relative mt-6 overflow-hidden rounded-xl bg-[var(--paper)] py-4 pl-6 pr-5 ring-1 ring-[var(--line)]">
               <span className="absolute top-0 left-0 h-full w-1.5 bg-[var(--amber)]" />
-              <p className="font-meta text-[11px] uppercase text-[var(--muted)]">Selected listing</p>
+              <p className="font-meta text-[11px] uppercase text-[var(--muted-text)]">Selected listing</p>
               <p className="font-display mt-1 font-semibold text-[var(--ink)]">{selectedJob.title}</p>
-              <p className="text-sm text-[var(--muted)]">{selectedJob.companyName}</p>
+              <p className="text-sm text-[var(--muted-text)]">{selectedJob.companyName}</p>
             </div>
           )}
 
