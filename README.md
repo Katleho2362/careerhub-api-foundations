@@ -1107,11 +1107,12 @@ Keeping these effects separate is important because they serve different respons
 ```md
 ## Effect Responsibilities
 
-| Effect | Dependency Array | Runs When |
-|--------|------------------|-----------|
-| Restore selected job | `[]` | Runs once after initial mount |
-| Persist selected job | `[selectedId]` | Runs whenever the selected job changes |
+| Effect                      | Dependency Array      | Runs When                                             |
+| --------------------------- | --------------------- | ----------------------------------------------------- |
+| Restore selected job        | `[]`                  | Runs once after initial mount                         |
+| Persist selected job        | `[selectedId]`        | Runs whenever the selected job changes                |
 | If both effects were merged | Combined dependencies | Could overwrite stored state before restore completes |
+
 ```
 
 ## Dark Mode Toggle Implementation
@@ -1136,5 +1137,16 @@ With the extracted component, all badge-related styling and behavior exist in on
 
 The final application successfully passed all required validation checks. Running the build command produced zero TypeScript errors and zero ESLint errors, confirming that the project satisfies the assignment requirements.
 
-npm run build
+npm run build:
+
+> next build
+
+▲ Next.js 16.2.9 (Turbopack)
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 7.0s
+✓ Finished TypeScript in 3.2s    
+✓ Collecting page data using 5 workers in 713ms    
+✓ Generating static pages using 5 workers (4/4) in 814ms
+✓ Finalizing page optimization in 25ms  
 
