@@ -51,7 +51,9 @@ export default function Home() {
     }
   }, []);
 
-  // Effect 2 — persist to sessionStorage whenever selectedId changes.
+  // Effect 2 — unchanged from before. Persists selectedId to
+  // sessionStorage any time it changes, so a refresh remembers the
+  // selection.
   useEffect(() => {
     if (selectedId !== null) {
       sessionStorage.setItem(STORAGE_KEY, selectedId);
