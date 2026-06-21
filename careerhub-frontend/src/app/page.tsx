@@ -14,6 +14,13 @@ export default function Home() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [view, setView] = useState<ViewFilter>("all");
 
+  // useQuery replaces the old hardcoded `jobs` array entirely. queryKey
+  // ["jobs"] is the cache identity — any other component using the same
+  // key would share this exact cached result. queryFn is the fetchJobs
+  // function from src/lib/api.ts. We rename `data` to `jobs` on
+  // destructure to keep the rest of the component's variable names
+  // unchanged from before.
+
   const {
     data: jobs,
     isPending,
