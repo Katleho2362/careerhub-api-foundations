@@ -8,6 +8,7 @@
   --ink: #1c2321;
   --teal: #1f4b43;
   --teal-dark: #15332e;
+  --rail-bg: var(--teal-dark);
   --canvas: #f5f2ea;
   --canvas-dim: #c9d6d1;
   --paper: #ffffff;
@@ -146,6 +147,7 @@ body {
   --ink: #f3efe6;         /* primary text, near --canvas's light-mode value */
   --line: #316058;        /* borders/dividers, a step lighter than --paper */
   --muted-text: #9fb3ac;  /* secondary text */
+  --rail-bg: #0d211d;
 }
 
 @layer base {
