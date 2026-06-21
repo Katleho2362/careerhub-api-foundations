@@ -1150,3 +1150,199 @@ npm run build:
 ✓ Generating static pages using 5 workers (4/4) in 814ms
 ✓ Finalizing page optimization in 25ms  
 
+
+---
+
+## Assignment 1.3: CareerHub Frontend -- Server State & TanStack Query
+
+### 1. Server state vs client state
+
+A manual `useEffect` + `useState` + `fetch` gives you none of the following for free:
+
+- **Caching by key.** `useQuery` stores results keyed by `queryKey` so navigating away
+  and back doesn't refetch. Without it: every remount fires a new request — the user
+  sees a skeleton/spinner every single time they revisit the page, even seconds later.
+
+- **Deduplication of in-flight requests.** If two components mount at once and both
+  want "jobs", TanStack Query fires one network call and shares the result. With
+  manual fetch, you get two simultaneous requests — wasted bandwidth, and a real risk
+  of race conditions where the *slower* response overwrites the faster one's state.
+
+- **Automatic retry on failure.** `useQuery` retries failed requests (configurable,
+  default 3 attempts with backoff). Manual fetch fails once and stops — a momentary
+  network blip becomes a hard error screen instead of self-healing.
+
+- **Background refetching / stale-while-revalidate.** TanStack Query refetches on
+  window refocus or reconnect while still showing the old data. Manual fetch-in-effect
+  only fetches on mount — the user can sit on a stale page indefinitely, e.g. seeing a
+  job that already closed, with no way to be brought back into sync without a hard
+  page reload.
+
+### 2. The queryKey contract
+
+TanStack Query uses `queryKey` as the cache identity for a query — it's the lookup key
+into the in-memory store, and it's what change-detection compares to decide whether to
+refetch, share, or invalidate.
+
+- **Failure mode A — shared key, should be separate:** Two components both use
+  `["jobs"]`, but one wants jobs filtered by "Auckland" and the other "Wellington".
+  Because they share a key, TanStack Query treats them as the *same* query — whichever
+  fetch resolves last overwrites the cache, and **both components render the same
+  (wrong) list**. Symptom: a filtered view randomly shows another filter's results.
+
+- **Failure mode B — unique key, should be shared:** Two components both want the
+  full unfiltered job list, but one uses `["jobs"]` and the other uses
+  `["jobs", "list"]`. TanStack Query treats them as different queries — it fetches
+  twice, caches twice, and a refetch/invalidation of one does not update the other.
+  Symptom: two parts of the UI showing the same data go out of sync after a mutation,
+  because only one cache entry got invalidated.
+
+### 3. Why fetch does not throw on HTTP errors
+
+The browser's `fetch` Promise only rejects on *network*-level failure (DNS failure, no
+connection, CORS block, request aborted). A 404, 500, or any non-2xx HTTP response is
+still a "successful" fetch from the Promise's point of view — the server responded, it
+just responded with an error status. `res.ok` is `false` precisely in these in-band
+HTTP error cases (4xx/5xx) even though `fetch` resolved normally.
+
+If `res.ok` isn't checked and no error is thrown, `fetchJobs` will happily `.json()`
+whatever error body the server sent (or throw a confusing JSON-parse error if the body
+isn't JSON) and return it as if it were valid data. TanStack Query has no way to know
+this was a failure — `isError` stays `false`, `isSuccess` becomes `true`, and the user
+sees either a broken UI rendering garbage as if it were a job list, or a cryptic parse
+crash instead of a clean "Try again" error panel.
+
+### 4. Stale-while-revalidate
+
+With default `staleTime: 0`, every refocus of the tab marks the query stale and
+triggers a background refetch — but the **previously fetched data stays on screen
+the whole time**. There's no skeleton, no flicker; the UI silently swaps in fresh data
+when the response arrives (or stays as-is if the data is unchanged).
+
+Contrast with `useEffect(() => { fetch... }, [])`: that effect only ever runs once, on
+mount. Refocusing the tab does nothing — the user keeps looking at whatever was
+fetched at initial mount, potentially stale for the entire session, with no built-in
+mechanism to bring it back in sync.
+
+---
+
+### 1. What TanStack Query manages
+
+`useQuery` automatically tracks all of the following. For each, I've described
+what I would need to write by hand with `useState` + `useEffect` + `fetch` to
+replicate it, and the edge cases that are easy to miss.
+
+- **Loading state (`isPending`)**
+  Manual equivalent: a `const [isLoading, setIsLoading] = useState(true)` state
+  variable, set to `true` before the fetch call and `false` in a `finally` block.
+  Edge case: if the component unmounts before the fetch resolves, calling
+  `setIsLoading(false)` on an unmounted component logs a React warning — you'd
+  need an `isMounted` ref or an `AbortController` to guard against it.
+
+- **Error state (`isError`, `error`)**
+  Manual equivalent: a `const [error, setError] = useState<Error | null>(null)`,
+  set in a `catch` block, and reset to `null` at the start of every new fetch
+  attempt (easy to forget — a stale error from a previous failed request can
+  linger and display even after a successful retry if you don't clear it).
+
+- **The actual data (`data`)**
+  Manual equivalent: `const [jobs, setJobs] = useState<JobListing[] | undefined>(undefined)`,
+  set inside `.then()`. Edge case: race conditions — if the user triggers two
+  fetches in quick succession (e.g. by switching tabs and back), the *first*
+  request might resolve *after* the second one, overwriting newer data with
+  stale data. Solving this manually requires tracking a request ID or using
+  `AbortController` to cancel the stale request.
+
+- **Refetch on demand (`refetch`)**
+  Manual equivalent: extracting the fetch logic into its own named function so
+  it can be called again from a button's `onClick`, rather than only living
+  inside a `useEffect`.
+
+- **Caching by key**
+  Manual equivalent: a module-level object or React Context acting as a cache,
+  keyed by some identifier, checked before firing a new fetch. This is
+  effectively reimplementing what `queryKey` already gives you — and you'd
+  still need your own logic for cache invalidation and garbage collection.
+
+- **Automatic retries**
+  Manual equivalent: a retry loop with exponential backoff inside the `catch`
+  block, with a max-attempts counter, written and tested from scratch.
+
+- **Refetch on window refocus / network reconnect**
+  Manual equivalent: a `window.addEventListener("focus", refetchFn)` (and a
+  matching `online` event listener), remembering to clean both up in the
+  effect's return function to avoid leaking listeners across re-renders.
+
+- **Deduplication of simultaneous requests**
+  Manual equivalent: a shared in-flight-promise cache so that two components
+  requesting the same data at the same time share one network call instead of
+  firing two — non-trivial to get right without a library.
+
+### 2. The queryKey design decision
+
+`["jobs"]` is the cache identity for "give me the full list of job listings."
+TanStack Query stores the result of this query under that exact key, and any
+component anywhere in the app that calls `useQuery({ queryKey: ["jobs"], ... })`
+shares the same cached data, the same loading/error state, and the same
+refetch behaviour — they're all subscribed to one underlying query.
+
+If the page needed to show jobs filtered by location — for example "Auckland"
+or "Wellington" separately — the key would need to become something like:
+
+    ["jobs", { location: "Auckland" }]
+    ["jobs", { location: "Wellington" }]
+
+The filter value has to be part of the key because the key *is* what
+distinguishes one cached result from another. If both filtered views used the
+plain `["jobs"]` key, TanStack Query would treat "Auckland jobs" and
+"Wellington jobs" as the *same* query — whichever one fetched most recently
+would silently overwrite the other in the cache, and both views would end up
+showing identical (and likely wrong) data. Including the filter value in the
+key means each distinct filter gets its own cache entry, its own loading
+state, and its own independent refetch — switching the location filter
+becomes "ask for a different cache entry," not "refetch and hope for the best."
+
+### 3. Skeleton design rationale
+
+`JobCardSkeleton` mirrors `JobCard`'s exact structure — title row, badge,
+company/location line, salary line, dashed-border footer, status badge area —
+rather than showing a generic spinner, because the goal isn't just "tell the
+user something is loading," it's "preserve the exact shape of the page while
+real content arrives."
+
+Layout shift is what happens when content appears on a page and pushes
+everything below it into a new position, because the placeholder that was
+there before it (or the absence of one) took up a different amount of space
+than the real content does. A spinner in the middle of an empty page, for
+example, occupies almost no vertical space — the instant six job cards load
+in below it, every card, the open/closed counts in the sidebar, and the page
+footer suddenly jump downward. That sudden jump is jarring, can make a user
+click the wrong thing if they were mid-click, and is penalized by Core Web
+Vitals (Cumulative Layout Shift) as a UX anti-pattern.
+
+Because `JobCardSkeleton` occupies the same height, width, and grid position
+that a real `JobCard` will occupy, the transition from loading to loaded is
+visually seamless — nothing else on the page has to move when the real data
+swaps in.
+
+### 4. Gate
+
+`npm run build` output:
+
+> careerhub-frontend@0.1.0 build
+> next build
+▲ Next.js 16.2.9 (Turbopack)
+- Environments: .env.local
+  Creating an optimized production build ...
+✓ Compiled successfully in 2.9s
+✓ Finished TypeScript in 3.1s    
+✓ Collecting page data using 6 workers in 768ms    
+✓ Generating static pages using 6 workers (5/5) in 687ms
+✓ Finalizing page optimization in 19ms    
+Route (app)
+┌ ○ /
+├ ○ /_not-found
+└ ƒ /api/jobs
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+
