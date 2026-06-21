@@ -29,7 +29,7 @@ export function Sidebar({ view, onViewChange, openCount, closedCount }: SidebarP
     <>
       <button
         onClick={() => setIsOpen(true)}
-        className="fixed top-4 left-4 z-30 rounded-lg bg-[var(--teal-dark)] p-2 text-[var(--canvas)] shadow-md md:hidden"
+        className="fixed top-4 left-4 z-30 rounded-lg bg-[var(--rail-bg)] p-2 text-[var(--canvas)] shadow-md md:hidden"
         aria-label="Open menu"
       >
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -42,7 +42,7 @@ export function Sidebar({ view, onViewChange, openCount, closedCount }: SidebarP
       )}
 
       <aside
-        className={`fixed z-20 h-full w-64 -translate-x-full bg-[var(--teal-dark)] p-6 transition-transform md:static md:translate-x-0 ${
+        className={`fixed z-20 h-full w-64 -translate-x-full bg-[var(--rail-bg)] p-6 transition-transform md:static md:translate-x-0 ${
           isOpen ? "translate-x-0" : ""
         }`}
       >
