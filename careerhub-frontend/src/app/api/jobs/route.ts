@@ -1,3 +1,9 @@
+
+// This file is a Next.js Route Handler. Because it lives at
+// src/app/api/jobs/route.ts, Next.js automatically serves it at the URL
+// /api/jobs. It acts as our mock backend  — standing in
+// for a real database/API until one is connected later.
+
 import { NextResponse } from "next/server";
 import { JobListing } from "@/types";
 
@@ -90,6 +96,7 @@ const jobs: JobListing[] = [
   },
 ];
 
+// Only GET is implemented — this route is read-only
 export async function GET() {
   return NextResponse.json(jobs);
 }
