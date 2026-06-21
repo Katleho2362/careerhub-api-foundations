@@ -1,5 +1,8 @@
 import { cn } from "@/lib/utils";
 
+// A single pulsing grey block. Reused for every placeholder region inside
+// the skeleton card (title, badge, salary line, etc.) so the styling stays
+// consistent and DRY.
 function SkeletonBlock({ className }: { className?: string }) {
   return (
     <div
@@ -10,6 +13,12 @@ function SkeletonBlock({ className }: { className?: string }) {
     />
   );
 }
+
+// Mirrors JobCard's exact visual structure region-by-region: heading row
+// (title + badge), company/location line, salary line, and the dashed
+// footer with metadata + status badge. This 1:1 structural match is what
+// prevents layout shift when real data swaps in — the skeleton already
+// occupies the same space the real card will
 
 export function JobCardSkeleton() {
   return (
@@ -41,6 +50,9 @@ export function JobCardSkeleton() {
   );
 }
 
+// Renders 6 skeleton cards in the same responsive grid JobList uses.
+// Six is the realistic size of a first page of results — enough to fill
+// the grid without overcommitting to a number that won't match real data.
 export function JobListSkeleton() {
   return (
     <div>
