@@ -8,12 +8,18 @@ import {
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 
 export function Providers({ children }: { children: React.ReactNode }) {
-  // useState initialiser form — ensures one QueryClient per component
-  // instance/mount, not a module-level singleton shared (and potentially
-  // leaked) across requests on the server.
+  // The QueryClient is created with the useState initialiser form
+  // (`useState(() => new QueryClient())`) rather than as a module-level
+  // `const queryClient = new QueryClient()`. This matters in Next.js:
+  // a module-level client would be created once and shared across every
+  // request on the server, leaking cached data between different users.
+  // Creating it inside useState ties its lifetime to this component
+  // instance instead
   const [queryClient] = useState(() => new QueryClient());
 
   return (
+    // Every descendant of QueryClientProvider can now call useQuery() and
+    // automatically share this one client's cache
     <QueryClientProvider client={queryClient}>
       {children}
       <ReactQueryDevtools initialIsOpen={false} />
