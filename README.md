@@ -1346,3 +1346,95 @@ Route (app)
 ○  (Static)   prerendered as static content
 ƒ  (Dynamic)  server-rendered on demand
 
+---
+# Assignment 1.4 — Applications & Mutations
+
+## Part 1 — Written Decisions
+
+### 1. Why `@hookform/resolvers` is a separate package
+
+React Hook Form and Zod are each independently popular and each used by people who don't use the other. If RHF depended directly on Zod, every RHF user would be forced to install Zod as a transitive dependency even if they use Yup, Joi, or no schema library at all — and the reverse would be true for Zod if it depended on RHF. Keeping them separate means each library stays focused on one job (RHF: form state and field registration; Zod: schema definition and parsing) and neither dictates the other's existence in a project. `@hookform/resolvers` exists purely as the adapter that translates between the two without either core library knowing the other exists.
+
+At runtime, `zodResolver(schema)` returns a function matching RHF's `Resolver` signature: `(values, context, options) => ResolverResult`. RHF calls this function itself, passing in the current form values as `values`. Internally, `zodResolver` calls `schema.safeParse(values)` (or `safeParseAsync`, depending on the schema) on those values. If parsing succeeds, it returns `{ values: parsedData, errors: {} }` — note `values` here is the *parsed/coerced* output, not the raw input, which is exactly why `z.coerce.number()` actually converts the string from a number input into a real number by the time `onValid` receives it. If parsing fails, it returns `{ values: {}, errors: formattedErrors }`, where `formattedErrors` is shaped to match RHF's internal `FieldErrors` structure (each key mapped to a `{ type, message }` object) so `formState.errors.fieldName.message` works directly in JSX.
+
+### 2. The number input problem
+
+**Solution A** (`valueAsNumber: true` on `register`) intercepts the value at the DOM event level — when the input fires its `onChange`/`onBlur` event, RHF reads `event.target.valueAsNumber` (a built-in browser API for `<input type="number">`) instead of `event.target.value`, so the string-to-number conversion happens before RHF ever stores the value in its internal form state.
+
+**Solution B** (`z.coerce.number()`) does nothing at the DOM layer — RHF stores the raw string exactly as the browser gave it. The conversion happens later, when `zodResolver` calls `schema.safeParse()` on submit; `z.coerce.number()` runs `Number(value)` internally before applying any further checks like `.min()` or `.int()`.
+
+They produce an identical `z.infer<typeof schema>` type because `z.infer` (and `z.output`) describe the schema's **output** — what comes out the other end after all parsing and coercion — not its input. Both solutions guarantee a `number` arrives at that point, just via different mechanisms (DOM-level read vs. schema-level coercion), so the inferred output type is `number` either way.
+
+I used **Solution B** in this assignment, deliberately, so that every validation rule for a field — type coercion included — lives in one place: the schema. With Solution A, you'd have coercion logic in `register()` calls scattered through the JSX and the remaining rules (`.int()`, `.min()`, `.max()`) in the schema — two places to check when debugging a number field. Solution B keeps `register("yearsOfExperience")` free of any options at all, matching this assignment's requirement that all validation logic live in the schema, not in `register`.
+
+### 3. `mutate` vs `mutateAsync` — the `isSubmitting` timing bug
+
+`handleSubmit(onValid)` awaits whatever promise `onValid` returns. If `onValid` calls `mutation.mutate(data)`, the problem is that `mutate` **does not return a promise at all** — it returns `void`. It fires the mutation (which internally starts its own async request) and returns immediately, synchronously, without waiting for anything. Since there is nothing to await, `onValid`'s returned promise resolves essentially instantly — and the moment it resolves, RHF flips `isSubmitting` back to `false`, even though the actual network request `mutate` kicked off is still pending in the background.
+
+`mutateAsync(data)`, by contrast, returns the *actual promise* representing the mutation's lifecycle — it resolves only when the request settles (succeeds or throws). By writing `await mutation.mutateAsync(data)` inside `onValid`, `onValid`'s own returned promise is now chained to that same promise. `handleSubmit` is awaiting `onValid`, so it cannot resolve — and therefore cannot flip `isSubmitting` to `false` — until the mutation itself has actually finished. This is exactly why this assignment requires `mutateAsync` instead of `mutate` inside `onValid`.
+
+### 4. `onSuccess` placement
+
+**Option A** (in the `useMutation` options object) fires for *every* call to `mutate`/`mutateAsync` made through that mutation instance, no matter where in the codebase that call happens. **Option B** (passed per-call as `mutate(data, { onSuccess })`) fires only for that specific call site.
+
+Concrete scenario where they differ: imagine a second button elsewhere in the app — say, a "Quick apply" shortcut on the job card itself — that also calls this same mutation's `mutate()` to submit an application, but from a different component, without going through `ApplicationForm`. If `onSuccess` is defined in Option A (on the mutation object), invalidating `["jobs"]` and resetting state would fire automatically for that second call site too, with zero extra code. If `onSuccess` were defined in Option B instead, that second call site would need its own `onSuccess` repeated, and forgetting to add it would mean the cache silently goes stale without a refetch.
+
+I used **Option A** in this assignment to invalidate `["jobs"]` and call `reset()`. My reasoning isn't just "it works" — it's that cache invalidation and form reset are properties of *what a successful application submission means*, not properties of *this particular click handler*. There's only one call site in this assignment, so the practical difference doesn't show up yet, but defining the effect on the mutation itself means if a second submission entry point is ever added later, the cache-invalidation behavior is automatically correct without needing to remember to repeat it.
+
+---
+
+## README Updates
+
+### 1. Schema design decisions
+
+`z.string().optional()` alone produces a schema that accepts either a valid string or `undefined` — it does **not** accept an empty string `""` as a third valid option, and critically, an HTML `<input>` left blank never submits `undefined` to begin with; it always submits `""`. So `z.string().optional()` on its own would reject every blank phone/LinkedIn field with whatever validation message the field's own rules produce (e.g., the regex failing against `""`), because as far as Zod is concerned, `""` is a string that was actually provided and must satisfy the rest of the chain (the regex, the URL format, etc.).
+
+`.or(z.literal(""))` widens the schema to a union: "a string matching the regex/URL rule, OR the exact literal empty string." This lets `""` pass parsing without needing to satisfy the regex. The chained `.transform((val) => (val === "" ? undefined : val))` then normalizes that passed-through `""` into `undefined` *after* validation succeeds, so the value the rest of the app sees is never an empty string sitting in a field that's supposed to be absent. The final inferred type is `string | undefined` for `phone` and `linkedInUrl`, matching the optional `phone?: string` and `linkedInUrl?: string` fields on `ApplicationRequest` exactly — and because `JSON.stringify` omits object keys whose value is `undefined`, the actual request body sent to the server omits these fields entirely when left blank, rather than sending `phone: ""`.
+
+### 2. The cross-field refine
+
+`.refine()`'s first argument is a callback that receives the **entire parsed object** as its single parameter — every field that passed its individual checks, all together, as one object — not a single field's value in isolation. This is the only way to express a rule that compares two different fields against each other, since a field-level rule attached to just `noticePeriodWeeks` (like `.min(1)`) has no access to `availableImmediately` at all; it only ever sees the one number it's attached to.
+
+The `path` option tells Zod which field in the resulting error map this particular failure should be attached to. Without it, Zod attaches the error to the schema's root (an empty path, `[]`), which means `errors.noticePeriodWeeks` stays `undefined` even though the rule is conceptually about the notice period — the error message would exist somewhere in the form's overall error state, but there'd be no field-level hook to read it from, so the styled `<p>` under that specific input would never render it.
+
+A field-level `.min(1)` on `noticePeriodWeeks` alone cannot express this constraint because it has no conditional awareness — `.min(1)` would reject `noticePeriodWeeks: 0` unconditionally, even for a candidate who checked "Available immediately" and therefore should be allowed to leave it at 0. The rule is fundamentally conditional on a *different* field's value, which only `.refine()` at the object level can see.
+
+### 3. The two loading flags
+
+A sequence where the two flags could diverge: if `onValid` called `mutation.mutate(data)` instead of `await mutation.mutateAsync(data)`, then the instant `mutate` returns (synchronously, before the network request even starts meaningfully progressing), `onValid`'s promise resolves, `handleSubmit` finishes, and `isSubmitting` drops to `false` — while `mutation.isPending` would still be `true`, because the request `mutate` kicked off is still in flight on the network. In that scenario, `isSubmitting` would be `false` for the remaining ~800ms while `mutation.isPending` stayed `true`, and the button would briefly re-enable mid-request if `isBusy` were just `isSubmitting` alone.
+
+Since this implementation uses `mutateAsync` correctly — `await mutation.mutateAsync(data)` inside `onValid` — it is **not** possible for `mutation.isPending` to outlast `isSubmitting`. `isSubmitting` is tied to the same promise that `mutateAsync` returns; RHF cannot resolve `isSubmitting` to `false` until that exact promise settles, and `mutation.isPending` flips to `false` at the same moment that promise settles (success or error). So in this specific implementation, the two flags rise and fall in lockstep — `isBusy = isSubmitting || mutation.isPending` is technically redundant precision rather than a fix for divergence, but it's a deliberate safety net: if either flag were ever true for any reason (a future refactor, an edge case I haven't hit), the button would still correctly stay disabled.
+
+### 4. Gate
+
+`npm run build` output:
+
+ careerhub-frontend@0.1.0 build
+> next build
+
+▲ Next.js 16.2.9 (Turbopack)
+- Environments: .env.local
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 5.2s
+✓ Finished TypeScript in 4.5s    
+✓ Collecting page data using 7 workers in 1294ms    
+✓ Generating static pages using 7 workers (6/6) in 1149ms
+✓ Finalizing page optimization in 32ms    
+
+Route (app)
+┌ ○ /
+├ ○ /_not-found
+├ ƒ /api/applications
+└ ƒ /api/jobs
+
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+
+```
+[PASTE YOUR ACTUAL BUILD OUTPUT HERE — run `npm run build` and paste the full
+terminal output below this line, including the "Compiled successfully" line
+and the route size table. Do not fabricate this — paste exactly what your
+terminal shows.]
+```
