@@ -24,7 +24,12 @@ export async function fetchJobs(): Promise<JobListing[]> {
   // api/v{version}/jobs, not /api/jobs. The Next.js mock route at
   // src/app/api/jobs/route.ts is no longer the data source — this now
   // points directly at CareerHub.Api.
-  const res = await fetch(`${baseUrl}/api/v1/jobs`);
+  // cache: "no-store" tells Next.js's extended fetch to skip its
+  // server-side data cache entirely and always hit the network. Without
+  // this, Next.js could serve a stale cached response on the /jobs
+  // Server Component route, which is exactly the staleness this
+  // assignment is testing for.
+  const res = await fetch(`${baseUrl}/api/v1/jobs`, { cache: "no-store" });
 
   // fetch() only rejects on network-level failure (DNS, no connection,
   // CORS). A 404 or 500 still resolves successfully — res.ok is what
@@ -43,6 +48,40 @@ export async function fetchJobs(): Promise<JobListing[]> {
   // needed beyond unwrapping `.data`.
   const paged: PagedResponse<JobListing> = await res.json();
   return paged.data;
+}
+
+// =====================================================
+// Assignment 2.1 — single job fetch for /jobs/[id]
+// =====================================================
+// Used by Server Components (app/jobs/[id]/page.tsx), so this can be
+// called with `await` directly in an async component body — no useQuery,
+// no client-side loading state. cache: "no-store" is passed by the
+// CALLER (the page), not hardcoded here, matching the assignment's
+// requirement that the page itself specifies the fetch's cache option.
+//
+// Returns null on 404 instead of throwing, so the calling page can decide
+// to call notFound() — distinguishing "doesn't exist" (404, expected,
+// handled) from "something went wrong" (500/network error, unexpected,
+// should surface as a thrown Error).
+export async function fetchJobById(id: string): Promise<JobListing | null> {
+  const baseUrl = process.env.NEXT_PUBLIC_API_URL;
+
+  const res = await fetch(`${baseUrl}/api/v1/jobs/${id}`, {
+    cache: "no-store",
+  });
+
+  if (res.status === 404) {
+    return null;
+  }
+
+  if (!res.ok) {
+    throw new Error(`Failed to fetch job: ${res.status} ${res.statusText}`);
+  }
+
+  // GetJobById returns the JobResponse object directly (Ok(job)) — not
+  // wrapped in a PagedResponse like the list endpoint, since there's only
+  // ever one job here. No unwrapping needed.
+  return res.json() as Promise<JobListing>;
 }
 
 // Shape of an RFC 7807 Problem Details error response — used by the
