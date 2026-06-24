@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { fetchJobById } from "@/lib/api";
 import { isJobActive } from "@/lib/job-status";
+import { getSession } from "@/lib/session";
 import { ApplicationForm } from "@/components/ApplicationForm";
 import { EmploymentTypeBadge, JobStatusBadge } from "@/components/JobStatusBadge";
 
@@ -27,6 +28,15 @@ export default async function JobDetailPage({ params }: JobDetailPageProps) {
   }
 
   const active = isJobActive(job);
+
+  // Applicant session is read here, server-side, because ApplicationForm
+  // (a Client Component) cannot read the httpOnly session cookie itself.
+  // The session's username is passed down as a read-only display value —
+  // the applicant's identity comes from their account (the Applicant row
+  // tied to session.applicantId on the real API), not from a freshly
+  // typed-in field, since the real SubmitApplicationRequest never
+  // accepts a name/email at all.
+  const session = await getSession("Applicant");
 
   return (
     <main className="px-6 py-10 md:px-12">
@@ -104,16 +114,41 @@ export default async function JobDetailPage({ params }: JobDetailPageProps) {
         {/* ── The composition moment ──────────────────────────────────────
             This page is a Server Component. ApplicationForm is a Client
             Component ("use client" at its top). The Server Component runs
-            on the server, fetches the job, and passes two serialisable
-            props (jobId: string, jobTitle: string) across the boundary.
-            Next.js serialises those into the RSC payload; the browser
-            hydrates ApplicationForm separately, wiring up its form state,
-            Zod validation, and submitApplication mutation. Neither side
+            on the server, fetches the job and the session, and passes
+            serialisable props across the boundary. Next.js serialises
+            those into the RSC payload; the browser hydrates
+            ApplicationForm separately, wiring up its form state, Zod
+            validation, and submitApplication mutation. Neither side
             needs to know how the other works internally.
             ─────────────────────────────────────────────────────────────── */}
         <div className="mt-10">
-          {active ? (
-            <ApplicationForm jobId={job.id} jobTitle={job.title} />
+          {!session ? (
+            <div
+              className="rounded-xl border border-[var(--line)] bg-[var(--paper)]
+                         px-6 py-8 text-center dark:border-[var(--line)]
+                         dark:bg-[var(--paper)]"
+            >
+              <p className="font-display font-semibold text-[var(--ink)] dark:text-[var(--ink)]">
+                Sign in to apply
+              </p>
+              <p className="mt-2 text-sm text-[var(--muted-text)] dark:text-[var(--muted-text)]">
+                You need an applicant account to submit an application.
+              </p>
+              <Link
+                href={`/login/applicant?from=/jobs/${job.id}`}
+                className="font-meta mt-4 inline-block rounded-full bg-[var(--amber)]
+                           px-5 py-2 text-xs uppercase text-[var(--ink)]
+                           transition-opacity hover:opacity-90"
+              >
+                Sign in as applicant
+              </Link>
+            </div>
+          ) : active ? (
+            <ApplicationForm
+              jobId={job.id}
+              jobTitle={job.title}
+              applicantName={session.username}
+            />
           ) : (
             <div
               className="rounded-xl border border-[var(--line)] bg-[var(--paper)]
@@ -140,5 +175,3 @@ export default async function JobDetailPage({ params }: JobDetailPageProps) {
     </main>
   );
 }
-
-
