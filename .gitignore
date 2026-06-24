@@ -489,3 +489,7 @@ appsettings.Development.json
 # Build artifacts
 **/bin/
 **/obj/
+
+# Build artifacts
+**/bin/
+**/obj/
