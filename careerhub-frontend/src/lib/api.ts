@@ -15,37 +15,16 @@ interface PagedResponse<T> {
 }
 
 export async function fetchJobs(): Promise<JobListing[]> {
-  // Base URL comes from the environment, not hardcoded, so this same code
-  // works against a local mock, a staging API, or production just by
-  // changing NEXT_PUBLIC_API_URL — no code changes required.
   const baseUrl = process.env.NEXT_PUBLIC_API_URL;
 
-  // The real backend is versioned (Asp.Versioning) and route-mapped to
-  // api/v{version}/jobs, not /api/jobs. The Next.js mock route at
-  // src/app/api/jobs/route.ts is no longer the data source — this now
-  // points directly at CareerHub.Api.
-  // cache: "no-store" tells Next.js's extended fetch to skip its
-  // server-side data cache entirely and always hit the network. Without
-  // this, Next.js could serve a stale cached response on the /jobs
-  // Server Component route, which is exactly the staleness this
-  // assignment is testing for.
-  const res = await fetch(`${baseUrl}/api/v1/jobs`, { cache: "no-store" });
+  const res = await fetch(`${baseUrl}/api/v1/jobs`, {
+    next: { tags: ["jobs"] }, // was cache: "no-store"
+  });
 
-  // fetch() only rejects on network-level failure (DNS, no connection,
-  // CORS). A 404 or 500 still resolves successfully — res.ok is what
-  // tells us the server returned an error status. Without this check,
-  // an error response's body would silently be parsed and returned as if
-  // it were valid job data.
   if (!res.ok) {
     throw new Error(`Failed to fetch jobs: ${res.status} ${res.statusText}`);
   }
 
-  // The .NET endpoint returns a PagedResponse<JobResponse>, not a bare
-  // array — { data, page, pageSize, totalCount, ... }. JobResponse's
-  // field names already match JobListing because ASP.NET Core's default
-  // System.Text.Json camelCase naming policy turns CompanyName into
-  // companyName, SalaryMin into salaryMin, etc. So no field mapping is
-  // needed beyond unwrapping `.data`.
   const paged: PagedResponse<JobListing> = await res.json();
   return paged.data;
 }
@@ -67,20 +46,15 @@ export async function fetchJobById(id: string): Promise<JobListing | null> {
   const baseUrl = process.env.NEXT_PUBLIC_API_URL;
 
   const res = await fetch(`${baseUrl}/api/v1/jobs/${id}`, {
-    cache: "no-store",
+    next: { tags: ["jobs"] }, // was cache: "no-store"
   });
 
-  if (res.status === 404) {
-    return null;
-  }
+  if (res.status === 404) return null;
 
   if (!res.ok) {
     throw new Error(`Failed to fetch job: ${res.status} ${res.statusText}`);
   }
 
-  // GetJobById returns the JobResponse object directly (Ok(job)) — not
-  // wrapped in a PagedResponse like the list endpoint, since there's only
-  // ever one job here. No unwrapping needed.
   return res.json() as Promise<JobListing>;
 }
 
