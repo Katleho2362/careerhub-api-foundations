@@ -41,7 +41,13 @@ public class ApplicationRepository(CareerHubDbContext context) : IApplicationRep
                 ApplicantId = a.ApplicantId,
                 ApplicantName = a.Applicant.FullName,
                 SubmittedAt = a.SubmittedAt,
-                Status = a.Status
+                Status = a.Status,
+                Phone = a.Phone,
+                CoverLetter = a.CoverLetter,
+                YearsOfExperience = a.YearsOfExperience,
+                LinkedInUrl = a.LinkedInUrl,
+                AvailableImmediately = a.AvailableImmediately,
+                NoticePeriodWeeks = a.NoticePeriodWeeks
             })
             .ToListAsync();
     }
@@ -57,7 +63,13 @@ public class ApplicationRepository(CareerHubDbContext context) : IApplicationRep
                 ApplicantId = a.ApplicantId,
                 ApplicantName = a.Applicant.FullName,
                 SubmittedAt = a.SubmittedAt,
-                Status = a.Status
+                Status = a.Status,
+                Phone = a.Phone,
+                CoverLetter = a.CoverLetter,
+                YearsOfExperience = a.YearsOfExperience,
+                LinkedInUrl = a.LinkedInUrl,
+                AvailableImmediately = a.AvailableImmediately,
+                NoticePeriodWeeks = a.NoticePeriodWeeks
             })
             .ToListAsync();
     }

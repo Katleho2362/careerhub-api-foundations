@@ -4,7 +4,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
-import { submitApplication } from "@/lib/api";
+import { submitApplication } from "@/app/actions/applications";
 import { cn } from "@/lib/utils";
 
 // =====================================================
@@ -15,7 +15,17 @@ import { cn } from "@/lib/utils";
 // schema. Schema first means there is one source of truth for shape and
 // validation; everything else is inferred from it, not hand-typed
 // separately and kept in sync by hand.
-
+//
+// NOTE on fullName/email: these are retained here to satisfy Assignment
+// 2.1's schema spec exactly (fullName: min 2/max 100 chars; email: valid
+// address). They are validated client-side as specified, but the
+// connected real .NET backend resolves the applicant's identity from the
+// authenticated session (session.applicantId), not from submitted form
+// fields — SubmitApplicationRequest has no FullName/Email properties at
+// all. These two fields are therefore collected and validated per spec
+// but deliberately NOT included in the payload sent to submitApplication
+// — see the "Applying as" read-only banner below, which shows who the
+// session actually resolves the submission to.
 const applicationSchema = z
   .object({
     fullName: z
@@ -32,9 +42,7 @@ const applicationSchema = z
     // the regex check instead of being treated as absent.
     // .or(z.literal("")) widens the schema to accept the literal empty
     // string as a second valid shape, and the trailing .transform turns
-    // that empty string into `undefined` after validation passes — so the
-    // outer type the form actually receives is `string | undefined`,
-    // matching the optional `phone?` field in ApplicationRequest.
+    // that empty string into `undefined` after validation passes.
     phone: z
       .string()
       .regex(/^\+?[\d\s\-()\d]{8,15}$/, "Enter a valid phone number")
@@ -104,8 +112,7 @@ const applicationSchema = z
 // so the form, the schema, and the TypeScript types can never drift apart.
 //
 // z.output (same as z.infer) gives the shape AFTER coercion runs —
-// yearsOfExperience and noticePeriodWeeks are `number` here, which is
-// what submitApplication and ApplicationRequest expect.
+// yearsOfExperience and noticePeriodWeeks are `number` here.
 type ApplicationFormData = z.output<typeof applicationSchema>;
 
 // z.input gives the shape BEFORE coercion — yearsOfExperience and
@@ -124,9 +131,20 @@ type ApplicationFormInput = z.input<typeof applicationSchema>;
 interface ApplicationFormProps {
   jobId: string;
   jobTitle: string;
+  /**
+   * Read-only display value sourced from the server-side session
+   * (session.username) — shown alongside the fullName/email fields so
+   * it's visible which account the submission actually resolves to.
+   * Not used for validation or sent in the payload.
+   */
+  applicantName: string;
 }
 
-export function ApplicationForm({ jobId, jobTitle }: ApplicationFormProps) {
+export function ApplicationForm({
+  jobId,
+  jobTitle,
+  applicantName,
+}: ApplicationFormProps) {
   const queryClient = useQueryClient();
 
   const {
@@ -144,42 +162,28 @@ export function ApplicationForm({ jobId, jobTitle }: ApplicationFormProps) {
   });
 
   const mutation = useMutation({
-    mutationFn: submitApplication,
-    // Option A — in the useMutation options object. Chosen over passing
-    // onSuccess per-call to mutate/mutateAsync because this effect (cache
-    // invalidation + form reset) must happen exactly once per successful
-    // submission regardless of which code path triggers it — there's only
-    // one call site here, but defining it on the mutation itself documents
-    // the effect as a property of "what success means for this mutation"
-    // rather than "what this particular call site wants to do afterwards".
+    // submitApplication is a Server Action with signature (jobId, fields)
+    // — two arguments — but useMutation always calls mutationFn with
+    // exactly one argument (whatever was passed to mutate/mutateAsync).
+    // This wrapper closes over jobId from props and supplies it as the
+    // first argument. fullName/email are deliberately NOT destructured
+    // into the payload here — see the schema comment above for why.
+    mutationFn: (data: ApplicationFormData) => {
+      const { fullName, email, ...payload } = data;
+      void fullName;
+      void email;
+      return submitApplication(jobId, payload);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["jobs"] });
       reset();
     },
   });
 
-  // isBusy combines two flags because they answer different questions.
-  // isSubmitting (from RHF) is true from the moment handleSubmit's
-  // internal validation starts until the onValid callback's returned
-  // promise settles. mutation.isPending (from TanStack Query) is true
-  // from the moment mutate/mutateAsync fires until the network request
-  // settles. Using mutateAsync and awaiting it inside onValid means
-  // isSubmitting cannot resolve before the mutation does — RHF is
-  // literally waiting on the same promise — so in this implementation the
-  // two flags rise and fall together. Combining them with OR is a safety
-  // net: if either flag is true for any reason, the button stays
-  // disabled.
   const isBusy = isSubmitting || mutation.isPending;
 
   async function onValid(data: ApplicationFormData) {
-    // mutateAsync (not mutate) inside the onValid handler. mutate fires
-    // the request and returns void immediately — handleSubmit has
-    // nothing to await, so isSubmitting drops to false the instant
-    // onValid returns, even though the request is still in flight.
-    // mutateAsync returns the promise itself, so awaiting it here means
-    // onValid does not resolve — and therefore isSubmitting does not drop
-    // — until the request actually settles.
-    await mutation.mutateAsync({ jobId, ...data });
+    await mutation.mutateAsync(data);
   }
 
   if (mutation.isSuccess) {
@@ -201,16 +205,25 @@ export function ApplicationForm({ jobId, jobTitle }: ApplicationFormProps) {
   return (
     <form
       onSubmit={handleSubmit(onValid)}
-      // noValidate disables the browser's native HTML5 validation
-      // (required, type="email", min/max popups). Without it, the
-      // browser's own validation UI would fire on submit BEFORE React
-      // Hook Form's handleSubmit ever runs, showing native tooltip
-      // bubbles that bypass our styled, accessible Zod error messages
-      // entirely and produce two competing validation systems.
       noValidate
       className="mt-6 space-y-5 rounded-xl bg-[var(--paper)] dark:bg-[var(--paper)]
                  p-6 ring-1 ring-[var(--line)] dark:ring-[var(--line)]"
     >
+      {/* Read-only — shows which authenticated account this submission
+          actually resolves to server-side. Independent of fullName/email
+          below, which are validated per the 2.1 spec but not transmitted. */}
+      <div
+        className="flex items-center justify-between rounded-lg border border-[var(--line)]
+                   bg-[var(--canvas)] px-3 py-2 dark:border-[var(--line)] dark:bg-[var(--canvas)]"
+      >
+        <span className="font-meta text-xs uppercase text-[var(--muted-text)] dark:text-[var(--muted-text)]">
+          Signed in as
+        </span>
+        <span className="text-sm font-medium text-[var(--ink)] dark:text-[var(--ink)]">
+          {applicantName}
+        </span>
+      </div>
+
       {mutation.isError && (
         <div
           className="rounded-lg border border-red-300 bg-red-50 px-4 py-3

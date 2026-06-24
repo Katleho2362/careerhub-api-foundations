@@ -30,7 +30,13 @@ public class ApplicationService(
             JobListingId = jobListingId,
             ApplicantId = request.ApplicantId,
             SubmittedAt = DateTime.UtcNow,
-            Status = ApplicationStatus.Submitted
+            Status = ApplicationStatus.Submitted,
+            Phone = request.Phone,
+            CoverLetter = request.CoverLetter,
+            YearsOfExperience = request.YearsOfExperience,
+            LinkedInUrl = request.LinkedInUrl,
+            AvailableImmediately = request.AvailableImmediately,
+            NoticePeriodWeeks = request.NoticePeriodWeeks
         };
 
         await _applicationRepo.AddAsync(application);

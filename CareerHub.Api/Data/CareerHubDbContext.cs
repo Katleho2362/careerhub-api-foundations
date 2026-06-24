@@ -66,6 +66,11 @@ protected override void OnModelCreating(ModelBuilder modelBuilder)
 
         entity.HasIndex(a => a.Email)
             .IsUnique();
+            // inside modelBuilder.Entity<Applicant>(entity => { ... })
+            // add after the Email property config:
+
+        entity.Property(a => a.PasswordHash)
+            .HasMaxLength(100); // BCrypt hashes are always 60 chars; 100 gives headroom
     });
 
     // =====================================================
@@ -167,6 +172,16 @@ protected override void OnModelCreating(ModelBuilder modelBuilder)
 
         entity.Property(a => a.SubmittedAt)
             .IsRequired();
+
+              // ── Rich application fields — all optional ──────────────────
+        entity.Property(a => a.Phone)
+            .HasMaxLength(20);
+
+        entity.Property(a => a.CoverLetter)
+            .HasMaxLength(2000);
+
+        entity.Property(a => a.LinkedInUrl)
+            .HasMaxLength(300);
 
         entity.HasOne(a => a.JobListing)
             .WithMany(j => j.Applications)

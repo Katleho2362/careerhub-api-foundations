@@ -1,11 +1,14 @@
+using BCrypt.Net;
+using CareerHub.Api.Data;
 using CareerHub.Api.DTOs;
+using CareerHub.Api.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
-
 
 namespace CareerHub.Api.Controllers;
 
@@ -13,141 +16,174 @@ namespace CareerHub.Api.Controllers;
 [Route("api/auth")]
 public class AuthController : ControllerBase
 {
-    // Used to read values from appsettings.Development.json
     private readonly IConfiguration _configuration;
+    private readonly CareerHubDbContext _db;
 
-    // Constructor Injection
-    public AuthController(IConfiguration configuration)
+    // CareerHubDbContext injected here — only AuthController needs it,
+    // so there's no point creating a whole IApplicantRepository just for
+    // two auth queries. Direct DbContext use in a controller is fine for
+    // this scope.
+    public AuthController(IConfiguration configuration, CareerHubDbContext db)
     {
         _configuration = configuration;
+        _db = db;
+    }
+
+    // ── Shared helper ────────────────────────────────────────────────────
+    // Builds and signs a JWT. Extracted so Login and Register don't
+    // duplicate the key/credentials/token block.
+    private string BuildApplicantToken(Guid applicantId, string username)
+    {
+        var claims = new[]
+        {
+            new Claim(ClaimTypes.Name, username),
+            new Claim(ClaimTypes.Role, "Applicant"),
+            new Claim("applicantId", applicantId.ToString())
+        };
+
+        var key = new SymmetricSecurityKey(
+            Encoding.UTF8.GetBytes(_configuration["Jwt:SecretKey"]!));
+
+        var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+
+        var token = new JwtSecurityToken(
+            claims: claims,
+            expires: DateTime.UtcNow.AddHours(2),
+            signingCredentials: credentials);
+
+        return new JwtSecurityTokenHandler().WriteToken(token);
     }
 
     // ==========================================
-    // POST: api/auth/login  End Point
+    // POST: api/auth/login  (employer)
     // ==========================================
     [HttpPost("login")]
     public IActionResult Login(LoginRequest request)
     {
-        // STEP 1:
-        // Validate username and password
         if (
             request.Username != "employer" ||
             request.Password != "password123"
         )
         {
-            // Returns 401 Unauthorized
             return Unauthorized();
         }
 
-        // STEP 2:
-        // Create claims to store inside JWT
         var claims = new[]
         {
-            // Subject claim (username)
-            new Claim(
-                ClaimTypes.Name,
-                request.Username),
-
-            // Role claim
-            new Claim(
-                ClaimTypes.Role,
-                "Employer")
+            new Claim(ClaimTypes.Name, request.Username),
+            new Claim(ClaimTypes.Role, "Employer")
         };
 
-        // STEP 3:
-        // Read Secret Key from appsettings.Development.json
-        var key =
-            new SymmetricSecurityKey(
-                Encoding.UTF8.GetBytes(
-                    _configuration["Jwt:SecretKey"]!));
+        var key = new SymmetricSecurityKey(
+            Encoding.UTF8.GetBytes(_configuration["Jwt:SecretKey"]!));
 
-        // STEP 4:
-        // Create signing credentials using HmacSha256
-        var credentials =
-            new SigningCredentials(
-                key,
-                SecurityAlgorithms.HmacSha256);
+        var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
-        // STEP 5:
-        // Generate JWT Token
-        var token =
-            new JwtSecurityToken(
-                claims: claims,
-                expires: DateTime.UtcNow.AddHours(2),
-                signingCredentials: credentials);
+        var token = new JwtSecurityToken(
+            claims: claims,
+            expires: DateTime.UtcNow.AddHours(2),
+            signingCredentials: credentials);
 
-        // STEP 6:
-        // Convert token object into string
-        var tokenString =
-            new JwtSecurityTokenHandler()
-                .WriteToken(token);
-
-        // STEP 7:
-        // Return token to user
-        return Ok(
-            new LoginResponse(tokenString));
+        return Ok(new LoginResponse(
+            new JwtSecurityTokenHandler().WriteToken(token)));
     }
 
     // ==========================================
-// POST: api/auth/login/applicant
-// Generates a token with the Applicant role
-// ==========================================
-[HttpPost("login/applicant")]
-public IActionResult LoginAsApplicant(LoginRequest request)
-{
-    if (
-        request.Username != "applicant" ||
-        request.Password != "password123"
-    )
+    // POST: api/auth/login/applicant
+    // ==========================================
+    [HttpPost("login/applicant")]
+    public async Task<IActionResult> LoginAsApplicant(LoginRequest request)
     {
-        return Unauthorized();
+        // ── Dev shortcut ─────────────────────────────────────────────────
+        // The hardcoded applicant/password123 path remains so the seeded
+        // dev applicant (no PasswordHash) still works without registration.
+        if (request.Username == "applicant" && request.Password == "password123")
+        {
+            var devApplicantId = Guid.Parse("33333333-0000-0000-0000-000000000099");
+            return Ok(new LoginResponse(BuildApplicantToken(devApplicantId, request.Username)));
+        }
+
+        // ── Real applicant lookup — email used as username ───────────────
+        // Registered applicants log in with their email address.
+        // FirstOrDefaultAsync is safe here: email has a unique index so
+        // there can never be more than one match.
+        var applicant = await _db.Applicants
+            .FirstOrDefaultAsync(a => a.Email == request.Username);
+
+        // Reject if not found, or found but registered without a password
+        // (i.e. a seeded row that isn't the dev shortcut above).
+        if (applicant is null || applicant.PasswordHash is null)
+            return Unauthorized();
+
+        // BCrypt.Verify does the constant-time comparison — never compare
+        // hashes with == (timing attacks).
+        if (!BCrypt.Net.BCrypt.Verify(request.Password, applicant.PasswordHash))
+            return Unauthorized();
+
+        return Ok(new LoginResponse(
+            BuildApplicantToken(applicant.Id, applicant.Email)));
     }
 
-    var claims = new[]
+    // ==========================================
+    // POST: api/auth/register
+    // ==========================================
+    [HttpPost("register")]
+    public async Task<IActionResult> Register(RegisterRequest request)
     {
-        new Claim(ClaimTypes.Name, request.Username),
-        new Claim(ClaimTypes.Role, "Applicant")
-    };
+        // Validate inputs — minimal, since the form does the heavy lifting.
+        // We still check server-side so the API is safe to call directly.
+        if (string.IsNullOrWhiteSpace(request.FullName) ||
+            string.IsNullOrWhiteSpace(request.Email) ||
+            string.IsNullOrWhiteSpace(request.Password))
+        {
+            return BadRequest(new { title = "All fields are required." });
+        }
 
-    var key = new SymmetricSecurityKey(
-        Encoding.UTF8.GetBytes(
-            _configuration["Jwt:SecretKey"]!));
+        if (request.Password.Length < 8)
+        {
+            return BadRequest(new { title = "Password must be at least 8 characters." });
+        }
 
-    var credentials = new SigningCredentials(
-        key, SecurityAlgorithms.HmacSha256);
+        // Duplicate email check — the unique index would catch this anyway,
+        // but catching it here lets us return a clear 409 Conflict with a
+        // human-readable message instead of a raw DB exception.
+        var emailTaken = await _db.Applicants
+            .AnyAsync(a => a.Email == request.Email);
 
-    var token = new JwtSecurityToken(
-        claims: claims,
-        expires: DateTime.UtcNow.AddHours(2),
-        signingCredentials: credentials);
+        if (emailTaken)
+        {
+            return Conflict(new { title = "An account with that email already exists." });
+        }
 
-    var tokenString = new JwtSecurityTokenHandler().WriteToken(token);
+        var applicant = new Applicant
+        {
+            Id = Guid.NewGuid(),
+            FullName = request.FullName,
+            Email = request.Email,
+            // WorkFactor 12 is the current recommended minimum for BCrypt —
+            // high enough to be slow for attackers, fast enough for login UX
+            // (~300ms on modern hardware).
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password, workFactor: 12)
+        };
 
-    return Ok(new LoginResponse(tokenString));
-}
+        _db.Applicants.Add(applicant);
+        await _db.SaveChangesAsync();
+
+        // Return a token immediately — the user is logged in right after
+        // registering, no separate login step needed.
+        return Ok(new LoginResponse(
+            BuildApplicantToken(applicant.Id, applicant.Email)));
+    }
 
     // ==========================================
-    // GET: api/auth/me  EndPoint
+    // GET: api/auth/me
     // ==========================================
     [Authorize]
     [HttpGet("me")]
     public IActionResult Me()
     {
-        // Read username from JWT
-        var username =
-            User.FindFirstValue(
-                ClaimTypes.Name);
-               
-
-        // Read role from JWT
-        var role =
-            User.FindFirstValue(
-                ClaimTypes.Role);
-
-        return Ok(new
-        {
-            Username = username,
-            Role = role
-        });
+        var username = User.FindFirstValue(ClaimTypes.Name);
+        var role = User.FindFirstValue(ClaimTypes.Role);
+        return Ok(new { Username = username, Role = role });
     }
 }

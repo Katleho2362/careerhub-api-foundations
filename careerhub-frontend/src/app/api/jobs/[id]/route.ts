@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 
-// ── Mock data ────────────────────────────────────────────────────────────────
-// These IDs must match what your real /api/v1/jobs list returns so that
-// clicking a card on /jobs actually resolves here during local testing.
-// The shape matches JobListing from src/types/index.ts.
+// Module-level mutable array — mutations persist for the duration of the
+// server process, which is exactly what the assignment requires for a mock.
+// `let` instead of `const` is not needed since we mutate the objects
+// in-place (not reassign the array), but the status field is now mutable.
 const MOCK_JOBS = [
   {
     id: "1",
@@ -15,6 +15,7 @@ const MOCK_JOBS = [
     salaryMin: 60000,
     salaryMax: 90000,
     closingDate: "2027-06-01T00:00:00Z",
+    status: "Open",
   },
   {
     id: "2",
@@ -26,6 +27,7 @@ const MOCK_JOBS = [
     salaryMin: 70000,
     salaryMax: 100000,
     closingDate: "2027-07-01T00:00:00Z",
+    status: "Open",
   },
   {
     id: "3",
@@ -36,13 +38,12 @@ const MOCK_JOBS = [
     description: "Build and maintain REST APIs using .NET Core and SQL Server.",
     salaryMin: 30000,
     salaryMax: 45000,
-    closingDate: "2024-01-01T00:00:00Z", // intentionally in the past → Closed
+    closingDate: "2024-01-01T00:00:00Z",
+    status: "Open",
   },
 ];
 
 // ── GET /api/jobs/[id] ───────────────────────────────────────────────────────
-// Returns a single job object (200) or a Problem Details 404.
-// All other methods are rejected with 405.
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -51,15 +52,8 @@ export async function GET(
   const job = MOCK_JOBS.find((j) => j.id === id);
 
   if (!job) {
-    // RFC 7807 Problem Details shape — matches what the assignment spec
-    // requires for the 404 body. The `detail` field carries the specific
-    // reason; `title` is the generic category.
     return NextResponse.json(
-      {
-        title: "Not Found",
-        detail: `No job with id '${id}' exists.`,
-        status: 404,
-      },
+      { title: "Not Found", detail: `No job with id '${id}' exists.`, status: 404 },
       { status: 404 }
     );
   }
@@ -67,28 +61,56 @@ export async function GET(
   return NextResponse.json(job, { status: 200 });
 }
 
-// ── All other methods → 405 ──────────────────────────────────────────────────
-// Next.js App Router automatically returns 405 for any method that has no
-// export in this file — but exporting a named handler makes it explicit
-// and allows us to include an Allow header, which the HTTP spec requires
-// for 405 responses.
+// ── PATCH /api/jobs/[id] ─────────────────────────────────────────────────────
+// Reads `status` from the request body and updates the job in-place.
+// Returns 400 if status is missing, 404 if job not found, 200 with the
+// updated job on success.
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id } = await params;
+
+  let body: Record<string, unknown>;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json(
+      { title: "Bad Request", detail: "Request body must be valid JSON.", status: 400 },
+      { status: 400 }
+    );
+  }
+
+  if (!body.status || typeof body.status !== "string") {
+    return NextResponse.json(
+      { title: "Bad Request", detail: "The 'status' field is required.", status: 400 },
+      { status: 400 }
+    );
+  }
+
+  const job = MOCK_JOBS.find((j) => j.id === id);
+  if (!job) {
+    return NextResponse.json(
+      { title: "Not Found", detail: `No job with id '${id}' exists.`, status: 404 },
+      { status: 404 }
+    );
+  }
+
+  // Mutate in-place — persists for the server process lifetime
+  job.status = body.status;
+
+  return NextResponse.json(job, { status: 200 });
+}
+
+// ── Method guards ─────────────────────────────────────────────────────────────
 export async function POST() {
-  return new NextResponse(null, {
-    status: 405,
-    headers: { Allow: "GET" },
-  });
+  return new NextResponse(null, { status: 405, headers: { Allow: "GET, PATCH" } });
 }
 
 export async function PUT() {
-  return new NextResponse(null, {
-    status: 405,
-    headers: { Allow: "GET" },
-  });
+  return new NextResponse(null, { status: 405, headers: { Allow: "GET, PATCH" } });
 }
 
 export async function DELETE() {
-  return new NextResponse(null, {
-    status: 405,
-    headers: { Allow: "GET" },
-  });
+  return new NextResponse(null, { status: 405, headers: { Allow: "GET, PATCH" } });
 }

@@ -157,14 +157,25 @@ public static class SeedData
             Email = "ayanda@example.com"
         };
 
-        var applicant3 = new Applicant
+       var applicant3 = new Applicant
         {
             Id = Guid.Parse("33333333-0000-0000-0000-000000000003"),
             FullName = "Liam van der Berg",
             Email = "liam@example.com"
         };
 
-        context.Applicants.AddRange(applicant1, applicant2, applicant3);
+        // Dev/demo applicant — backs the hardcoded "applicant"/password123
+        // login in AuthController so that login path has a real Applicant
+        // row to attach as the JWT's applicantId claim, and can submit
+        // real applications end-to-end without going through registration.
+        var devApplicant = new Applicant
+        {
+            Id = Guid.Parse("33333333-0000-0000-0000-000000000099"),
+            FullName = "Dev Applicant",
+            Email = "applicant@dev.local"
+        };
+
+        context.Applicants.AddRange(applicant1, applicant2, applicant3, devApplicant);
         context.SaveChanges();
 
         // =====================================================
