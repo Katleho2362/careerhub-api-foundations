@@ -485,3 +485,7 @@ $RECYCLE.BIN/
 .env
 .env.local
 appsettings.Development.json
+
+# Build artifacts
+**/bin/
+**/obj/
