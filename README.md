@@ -1566,3 +1566,200 @@ Route (app)
 ### Stretch B — error.tsx for the jobs detail route
 
 `error.tsx` is always a Client Component (required by Next.js — it receives `error` and `reset` as props, which requires browser-side rendering). It renders `error.message` and a "Try again" button that calls `reset()` to retry the failed render.
+---
+# CareerHub Frontend — Assignment 2.2  CareerHub Advanced Data Fetching Cache Smarter, Stream Earlier, Mutate on the Server
+
+## Part 1 — Written Decisions
+
+### 1. Choosing a cache strategy per data source
+
+CareerHub has three data sources, each with a different change frequency and therefore a different caching strategy.
+
+**Jobs list (`/api/v1/jobs`)** uses `next: { tags: ["jobs"] }`. Job listings only change when an employer publishes or closes a listing — both are explicit employer actions. Between those events the data is stable, so serving from the Next.js server cache is correct. The cache is invalidated on demand via `revalidatePath` inside the `closeJobListing` Server Action, so candidates always see the current state after a change without paying the cost of a fresh fetch on every request.
+
+**Single job detail (`/api/v1/jobs/[id]`)** also uses `next: { tags: ["jobs"] }` for the same reason. A job's details only change when an employer edits or closes it. The same `revalidatePath` call that clears the list also clears the detail pages, so both surfaces stay consistent after a mutation.
+
+**Application statistics (`/api/applications/stats`)** uses `cache: "no-store"`. Candidates submit applications at any time — there is no employer-side action that cleanly signals "stats have changed." There is no event to hook `revalidatePath` onto, so always-fresh is the only correct strategy. Serving stale stats to the employer dashboard would undercount applications and erode trust in the data.
+
+The key distinction is whether a change is triggered by an explicit, trackable action (jobs — yes, via close/publish) or by continuous background activity (applications — no, submitted at any time by anyone). Tags work when you can identify the moment of change. When you cannot, `no-store` is correct.
+
+Both `/jobs/page.tsx` and `/dashboard/listings/page.tsx` use the same `"jobs"` tag, and that is intentional rather than a problem. The tag is not scoped to a file or a route — it is a label attached to a cached response on the Next.js server. When `revalidatePath` fires after a close action, it clears every cached response bearing that label, regardless of which route produced it. The employer's action becoming visible on both the dashboard and the candidate-facing jobs page simultaneously is exactly the required behaviour.
+
+### 2. Why revalidatePath works across routes
+
+The Next.js server cache lives on the Next.js server process — not in the browser, not in a CDN. It is an in-process, in-memory (and optionally disk-backed) store that sits between the application code and the upstream API. Every `fetch` call tagged with `next: { tags: [...] }` or cached by default writes its response into this store keyed by URL and tag.
+
+Because the cache is on the server, `revalidatePath` called inside a Server Action in `src/app/actions/closeJob.ts` can reach cached responses produced by fetches in `src/app/jobs/page.tsx` and `src/app/dashboard/listings/page.tsx` — they all share the same server process and therefore the same cache store. The directory a file lives in is irrelevant; what matters is that the cache is global to the server, not scoped per route or per file.
+
+When `revalidatePath("/jobs", "page")` fires, it marks the cached responses for that path as stale. The very next request to `/jobs` finds no valid cache entry and fetches fresh data from the `.NET` API. That response is then cached again until the next mutation. So the first request after revalidation is a cache miss — it goes to the network. Every subsequent request until the next mutation is a cache hit.
+
+### 3. What Promise.all failure means for the dashboard
+
+With the current implementation, if `getApplicationStats()` throws — for example because the stats endpoint returns 500 — the entire `Promise.all` rejects and the dashboard page throws an error. The user sees Next.js's error boundary (a full-page error in development, or the nearest `error.tsx` boundary in production). Neither the jobs table nor the stats card renders. The page is entirely broken even though the jobs data arrived successfully.
+
+Two approaches that would show partial data instead:
+
+**Option A — try/catch per fetch, fallback value.** Wrap `getApplicationStats()` in a try/catch inside the component and return an empty array on failure. The jobs table renders with all counts showing 0, and the stats card shows 0. The user sees a degraded but functional page.
+
+**Option B — independent Suspense boundaries with per-component error boundaries.** Wrap `<ApplicationsSummary />` in its own `<ErrorBoundary>` that renders a "Stats unavailable" fallback. The jobs table is completely unaffected — it fetches independently and renders normally. Only the stats card shows the fallback.
+
+For a production employer dashboard, Option B is the right choice. It preserves the most important surface (the jobs table with close actions) even when a secondary data source fails. An employer can still manage listings when stats are temporarily unavailable. Option A is simpler but silently shows wrong data (all zeros) without telling the employer something went wrong.
+
+### 4. The two-boundary vs one-boundary trade-off
+
+With two independent Suspense boundaries:
+
+- **T=0ms:** The server has sent the initial HTML. The page heading "All Listings" is visible. Both skeleton placeholders are visible — one where the stats card will appear, one where the table will appear.
+- **T=120ms:** `ApplicationsSummary` resolves. Its skeleton is replaced by the real stats card showing "Total Applications: 17". The table skeleton is still visible.
+- **T=450ms:** `ListingsTable` resolves. Its skeleton is replaced by the full jobs table with all columns and Close buttons.
+- **T=451ms:** The page is complete. Both components are showing real data.
+
+With a single `<Suspense>` boundary wrapping both components, at T=120ms the user still sees the skeleton for the entire boundary — because Suspense waits for the slowest child before revealing anything inside it. `ApplicationsSummary` has already resolved but its result is hidden, waiting for `ListingsTable` to finish. The user sees nothing new at T=120ms. Both components appear simultaneously at T=450ms.
+
+Two boundaries are better here because the two data sources are genuinely independent — stats and listings have no shared dependency, and showing one earlier costs nothing. A single boundary would be the right call if the two components shared data that had to arrive together before either could render meaningfully — for example, if the stats card needed to know the total job count from the listings fetch to compute a "applications per listing" ratio. In that case, showing the stats card without the listings data would be incomplete or misleading, and a single boundary that waits for both is correct.
+
+---
+
+## Part 2 — New Route Handlers
+
+### Stats endpoint — `GET /api/applications/stats`
+
+Created at `src/app/api/applications/stats/route.ts`. Returns a JSON array of `{ jobId, applicationCount }` objects, one per seeded job. Job IDs match the seeded GUIDs in `SeedData.cs`. `POST`, `PUT`, `PATCH`, and `DELETE` to this route return 405.
+
+### Job status update — `PATCH /api/jobs/[id]`
+
+Extended `src/app/api/jobs/[id]/route.ts` with a `PATCH` handler. Reads `id` from params and `status` from the request body. Returns 404 if the job does not exist, 400 if `status` is missing, and 200 with the updated job on success. The `MOCK_JOBS` array is module-level and mutable — updates persist for the duration of the server process.
+
+---
+
+## Part 3 — Cache Strategies with Tags
+
+Changed `fetchJobs()` and `fetchJobById()` in `src/lib/api.ts` from `cache: "no-store"` to `next: { tags: ["jobs"] }`. Both the candidate-facing jobs fetch and the employer dashboard jobs fetch use the same tag so that a single `revalidatePath` call in the close action clears both surfaces simultaneously.
+
+Application stats fetches retain `cache: "no-store"` because applications are submitted continuously by candidates and there is no employer action that can trigger their invalidation.
+
+---
+
+## Part 4 — Parallel Fetching on the Dashboard
+
+`src/app/dashboard/listings/page.tsx` previously awaited only `fetchJobs()`. Updated to call `Promise.all([fetchJobs(), getApplicationStats()])` so both requests fire simultaneously. Added an **Applications** column to the table that joins each job row with its `applicationCount` from the stats result by matching `jobId`. Jobs with no matching stat entry display 0.
+
+---
+
+## Part 5 — Streaming with Two Suspense Boundaries
+
+Extracted two async Server Components:
+
+**`src/components/ApplicationsSummary.tsx`** — fetches stats internally, computes the total application count, renders a stat card. Includes `ApplicationsSummarySkeleton` as its Suspense fallback.
+
+**`src/components/ListingsTable.tsx`** — fetches both jobs and stats internally via `Promise.all`, joins them, renders the full table with all seven columns including the Close action. Includes `ListingsTableSkeleton` (five animate-pulse rows) as its Suspense fallback.
+
+`src/app/dashboard/listings/page.tsx` was rewritten to perform no awaits itself. It renders the page heading immediately and wraps each component in its own independent `<Suspense>` boundary. `ApplicationsSummary` resolves first (one fetch, small payload); `ListingsTable` resolves second (two fetches, join). The two replacements are visible as distinct events.
+
+---
+
+## Part 6 — Server Action and useActionState
+
+**`src/app/actions/closeJob.ts`** — Server Action that reads `jobId` and `jobTitle` from `formData`, forwards the employer JWT from the session cookie in the `Authorization` header, sends `DELETE /api/v1/jobs/{id}` to the `.NET` API, calls `revalidatePath` on both `/jobs` and `/dashboard/listings` on success, and returns a discriminated union state (`success | error | null`).
+
+**`src/components/CloseJobButton.tsx`** — Client Component that uses `useActionState(closeJobListing, null)`. Renders nothing for already-closed jobs. Shows "Closing…" and disables the button while the action is pending. Replaces the button with "Closed ✓" on success. Shows the error message below the button on failure, keeping the button active for retry.
+
+The `revalidatePath` call runs on the server inside the action before the response is sent back to the browser. The next request to `/jobs` or `/dashboard/listings` fetches fresh data from the `.NET` API instead of serving a stale cached response. This is how a mutation on the employer dashboard propagates to the candidate-facing jobs page — both paths are cleared by the same action.
+
+---
+
+## Tracing the close action end to end
+
+1. **Browser:** The employer clicks "Close" on a job row. `CloseJobButton` is a Client Component using `useActionState` — clicking submit sets `isPending` to true, disabling the button and showing "Closing…".
+
+2. **Browser → Server:** The browser sends a `POST` request to the Next.js server with the form data (jobId, jobTitle) encoded in the request body. This is the Server Action invocation — it looks like a fetch from the browser but targets the Next.js server, not the `.NET` API directly.
+
+3. **Server — `closeJobListing`:** The Server Action runs on the Next.js server. It reads `jobId` from `formData`, retrieves the employer JWT from the httpOnly session cookie using `getToken("Employer")`, and sends `DELETE /api/v1/jobs/{jobId}` to the `.NET` API with the token in the `Authorization` header.
+
+4. **Server — `.NET` API:** The `.NET` `JobsController` validates the JWT, confirms the `Employer` role, calls `CloseListingAsync`, marks the job as inactive in Postgres, and returns `204 No Content`.
+
+5. **Server — revalidation:** Back in the Server Action, `revalidatePath("/jobs", "page")` and `revalidatePath("/dashboard/listings", "page")` fire. These mark the cached responses for both paths as stale in the Next.js server cache.
+
+6. **Server → Browser:** The Server Action returns `{ status: "success", jobTitle }`. `useActionState` receives the new state, `isPending` becomes false, and `CloseJobButton` renders "Closed ✓".
+
+7. **Candidate's next page load:** When a candidate navigates to `/jobs`, Next.js finds no valid cache entry (it was cleared in step 5) and fetches fresh data from the `.NET` API. The closed job now has `isActive: false` and renders with a "Closed" badge. The `ApplicationForm` is replaced by the "Applications are closed" message on the detail page.
+
+---
+
+## Why two Suspense boundaries are better than one
+
+With two boundaries, at T=120ms the employer sees the stats card already populated with the total application count while the table skeleton is still animating. Useful information arrives as soon as it is ready.
+
+With one boundary wrapping both components, at T=120ms the employer still sees the skeleton for the entire boundary. `ApplicationsSummary` has resolved but its result is hidden — Suspense holds everything until the slowest child (`ListingsTable` at T=450ms) finishes. The employer waits an extra 330ms to see data that was ready much earlier.
+
+A single boundary would be the right call if the two components were not truly independent. For example, if the stats card needed to display "X applications across Y active listings" — where Y comes from the jobs fetch inside `ListingsTable` — then showing the stats card before the jobs data arrives would require a prop dependency between the two components, collapsing them into one fetch boundary. In that case a single Suspense wrapping both would be correct.
+
+---
+
+## The self-contained component trade-off
+
+`ListingsTable` fetches its own jobs and stats internally with `Promise.all`. This makes it self-contained — it can be placed anywhere on any page and will always have its own data. No parent component needs to know what data it requires or coordinate fetches on its behalf.
+
+The cost appears if `ListingsTable` is rendered in multiple places simultaneously. If it appears in three places on the same page, three independent pairs of fetches fire — six total requests where two would suffice. Next.js deduplicates identical `fetch` calls within a single render pass when using the same cache options, which mitigates this for the jobs fetch (tagged), but the stats fetch (`no-store`) is not deduplicated and fires once per component instance.
+
+The prop-driven alternative — a pure component that accepts `jobs` and `stats` as props, with the parent fetching both — solves the duplication problem: one fetch, shared across however many instances consume the data. The cost is Suspense compatibility. If the parent awaits both fetches before rendering, neither component can stream independently — the parent blocks until both resolve and hands data to both children at once. The streaming benefit of Part 5 is lost.
+
+If the component were reused in five places, the prop-driven approach is the right choice. Five instances each firing two fetches is ten requests per page load; a single parent fetch shared across five pure child components is two. The streaming loss is acceptable when the alternative is a fivefold request multiplication. The self-contained design is best when a component appears once or twice and streaming latency matters more than request count.
+
+---
+
+## Build Output
+
+careerhub-frontend@0.1.0 build
+
+next build
+
+▲ Next.js 16.2.9 (Turbopack)
+
+Environments: .env.local
+
+⚠ The "middleware" file convention is deprecated. Please use "proxy" instead. Learn more: https://nextjs.org/docs/messages/middleware-to-proxy
+
+Creating an optimized production build ...
+
+✓ Compiled successfully in 6.3s
+
+✓ Finished TypeScript in 6.2s
+
+✓ Collecting page data using 7 workers in 1563ms
+
+✓ Generating static pages using 7 workers (12/12) in 721ms
+
+✓ Finalizing page optimization in 32ms
+
+Route (app)
+
+┌ ƒ /
+
+├ ƒ /_not-found
+
+├ ƒ /api/applications
+
+├ ƒ /api/applications/stats
+
+├ ƒ /api/jobs
+
+├ ƒ /api/jobs/[id]
+
+├ ƒ /dashboard/listings
+
+├ ƒ /jobs
+
+├ ƒ /jobs/[id]
+
+├ ƒ /login/applicant
+
+├ ƒ /login/applicant/register
+
+└ ƒ /login/employer
+
+ƒ Proxy (Middleware)
+
+ƒ  (Dynamic)  server-rendered on demand
+
+Zero TypeScript errors. Zero ESLint errors.
