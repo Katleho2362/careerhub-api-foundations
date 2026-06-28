@@ -1,4 +1,5 @@
 import { JobListing, ApplicationRequest, ApplicationResponse } from "@/types";
+import { isJobActive } from "./job-status";
 
 // Shape returned by the real .NET API's GetJobs endpoint
 // (DTOs/PagedResponse.cs). We only need `data` for now — pagination
@@ -14,11 +15,15 @@ interface PagedResponse<T> {
   hasPreviousPage: boolean;
 }
 
-export async function fetchJobs(): Promise<JobListing[]> {
+export async function fetchJobs(filters?: {
+  q?: string;
+  location?: string;
+  status?: string;
+}): Promise<JobListing[]> {
   const baseUrl = process.env.NEXT_PUBLIC_API_URL;
 
   const res = await fetch(`${baseUrl}/api/v1/jobs`, {
-    next: { tags: ["jobs"] }, // was cache: "no-store"
+    next: { tags: ["jobs"] },
   });
 
   if (!res.ok) {
@@ -26,7 +31,29 @@ export async function fetchJobs(): Promise<JobListing[]> {
   }
 
   const paged: PagedResponse<JobListing> = await res.json();
-  return paged.data;
+  let jobs = paged.data;
+
+  // Filter in JS after fetch — mock API doesn't support query params
+  if (filters?.q) {
+    const q = filters.q.toLowerCase();
+    jobs = jobs.filter(
+      (j) =>
+        j.title.toLowerCase().includes(q) ||
+        j.companyName.toLowerCase().includes(q) ||
+        j.description.toLowerCase().includes(q)
+    );
+  }
+
+  if (filters?.location) {
+    const loc = filters.location.toLowerCase();
+    jobs = jobs.filter((j) => j.location.toLowerCase().includes(loc));
+  }
+
+  if (filters?.status === "open") {
+    jobs = jobs.filter((j) => isJobActive(j));
+  }
+
+  return jobs;
 }
 
 // =====================================================
