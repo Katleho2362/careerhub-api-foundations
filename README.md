@@ -1763,3 +1763,131 @@ Route (app)
 ƒ  (Dynamic)  server-rendered on demand
 
 Zero TypeScript errors. Zero ESLint errors.
+
+---
+# CareerHub — Assignment 2.3: Authentication & Smart State
+
+## Part 1 — Written Decisions
+
+### Question 1 — Mapping CareerHub roles to route protection rules
+
+| Route | Who can access | Wrong role / unauthenticated → | Handled in |
+|---|---|---|---|
+| `/jobs` | Everyone (public) | N/A | Nothing |
+| `/jobs/[id]` | Everyone (public) | N/A | Nothing |
+| `/dashboard` | `employer` only | Candidate → `/jobs`; unauthenticated → `/login` | Middleware |
+| `/dashboard/listings` | `employer` only | Same as above | Middleware |
+| `/login` | Unauthenticated only | Employer → `/dashboard/listings`; Candidate → `/jobs` | Middleware |
+
+**Why redirecting an unauthenticated user to `/login` and redirecting a candidate away from `/dashboard` are different problems:**
+
+Redirecting an unauthenticated user is about *presence* of a session — there is no session at all, so we send them to go get one. Redirecting a candidate away from `/dashboard` is about *role* — they already have a valid session, it's just the wrong one for this route. The first is a missing-auth problem; the second is an insufficient-privilege problem. Both are still handled in middleware because both can be determined from the JWT cookie alone, before any page component renders — no flash of protected content, no wasted server render, no client-side redirect flicker.
+
+### Question 2 — The session object design
+
+**What goes on the session:** `id`, `name`, `role`. That's it.
+
+**What is deliberately left off:** password (obviously), any backend token, email, or anything not needed to make a routing or UI decision. The spec note for Part 2 is explicit about this — *"There is no `backendToken` here — do not add fields you do not use."*
+
+**Cost of putting too much on the session:** The session is encoded into a JWT and sent as a cookie with every single request to the app. Anything you add to it is dead weight on every request, not just the ones that need it. The JWT payload is also only base64-encoded by default, not encrypted — so anything beyond what's needed for routing/UI is needless client-side exposure.
+
+**What breaks if `role` is on the JWT but not mapped to session:** Every call to `auth()` in a Server Component returns a session where `session.user.role` is `undefined`. Without correct module augmentation, TypeScript won't catch this at compile time — it'll just silently break every role-gated UI decision (nav links, the dashboard guard, the apply-button logic) at runtime, with no error, just the wrong branch always firing.
+
+**The three-step relay:**
+
+```
+authorize()       → returns { id, name, role }
+      ↓
+jwt callback      → token.role = user.role   (user is only present on the initial sign-in call)
+      ↓
+session callback  → session.user.role = token.role
+      ↓
+auth() / useSession() → session.user.role is available everywhere
+```
+
+### Question 3 — Choosing the state tool for job filters
+
+| Filter | URL param | Tool | Justification |
+|---|---|---|---|
+| Keyword search | `q` | nuqs | Survives refresh, shareable, back/forward works |
+| Location | `location` | nuqs | Same reasoning |
+| Status | `status` | nuqs | Same reasoning; also makes the default (`all`) explicit and visible in the URL |
+
+**What nuqs buys that `useState` cannot:** With `useState`, refreshing the page loses the filter entirely — it's in-memory only, gone the instant the component unmounts. With `nuqs`, the filter value lives in the URL itself, so refresh preserves it, the browser's back/forward buttons restore previous filter states, and a shared URL gives the recipient the *exact* same filtered view without any extra plumbing. `useState` is ephemeral and local; `nuqs` makes filter state a durable, shareable, first-class part of the URL — which is exactly what a "filtered search" conceptually is.
+
+**Does the employer dashboard need to know about these filters?** No. Job filters (`q`, `location`, `status`) are a candidate-facing concern that lives entirely on `/jobs`. The employer dashboard has its own, separate piece of state — the view/closed-jobs preference — covered in Part 7, and the two are intentionally decoupled.
+
+### Question 4 — What the nav bar knows
+
+**Why `await auth()` in `layout.tsx` is not a performance problem, even though the nav renders on every page load:** `auth()` reads the session by decoding the JWT cookie that came with the request — it is a local, synchronous-cost decode operation, not a network round-trip to a database. Auth.js also wraps this in React's `cache()`, so within a single request, every component that calls `auth()` (the layout, a page, a nested Server Component) shares one deduplicated read rather than re-decoding the cookie multiple times. The cost is microseconds, not a database query.
+
+**Session in a deeply nested Client Component:** You don't drill the session down as props through every layer. Instead, `SessionProvider` (from `next-auth/react`) wraps the app in `providers.tsx`, seeded with the session read on the server. Any nested Client Component, no matter how deep, can then call `useSession()` directly and read from that context — no extra network request, because the provider was already hydrated with the server-fetched session.
+
+**`useSession()` vs `auth()`, and when to reach for each:** `auth()` is for the server — Server Components, Server Actions, Route Handlers, middleware — and reads the session synchronously from the request's cookie. `useSession()` is for the client — it's a React hook that reads from the `SessionProvider` context. The rule of thumb: if the code runs on the server, use `auth()`; if it runs in a Client Component (anything with `"use client"` that needs to react to session state, e.g. conditionally rendering a button), use `useSession()`.
+
+---
+
+## Middleware vs Page-Level Guards
+
+**One rule from Part 4 that lives in middleware:** The `/dashboard` (and `/dashboard/listings`) protection — requiring `role === "employer"`, redirecting unauthenticated users to `/login` and candidates to `/jobs`. This belongs in middleware because it's a *route-level* access decision that can be fully resolved from the JWT cookie alone, before any data fetching or rendering happens. Putting it in the page component would mean the page (and any data it fetches) starts executing before the redirect fires — wasted work, and a possible flash of protected UI before the redirect completes client-side.
+
+**One rule from Part 5 that lives in the page:** The apply-button logic on `/jobs/[id]` — showing "Employers cannot apply," the sign-in prompt, or the form, depending on role. This *cannot* live in middleware because `/jobs/[id]` is intentionally public — employers and signed-out users are allowed to view the page itself, they just see a different fragment of UI on it. Middleware can only allow or block a route wholesale; it has no concept of "render this page, but swap out this one component." That decision requires the actual session value at render time, which is why it's resolved in the page component via `await auth()` alongside the job fetch (`Promise.all`).
+
+**The general principle:** If the decision is "should this request reach this route at all" — middleware. If the decision is "what should this specific page show, given who's asking" — the page component. Middleware operates on routes; pages operate on content. A route that's entirely role-restricted belongs in middleware; a public route with role-dependent fragments belongs in the page.
+
+---
+
+## Why URL State for Job Filters
+
+`nuqs` was chosen over `useState` or Zustand for all three job filters (`q`, `location`, `status`) because filtering on `/jobs` is fundamentally a *navigable, shareable view* of the data, not transient UI state.
+
+- **Sharing filtered views:** A URL like `/jobs?q=engineer&status=open` fully describes the view. Anyone who opens that link sees exactly the same filtered list — no extra steps, no "now go apply these filters yourself." `useState` or Zustand store this only in memory; the URL doesn't change, so a copied link loses the filter entirely.
+- **Browser back/forward behaviour:** Because each filter change updates the URL (after the debounce), the browser's history stack naturally includes each filtered state. Pressing back restores the previous filter combination, the way users already expect search/filter UIs to behave. With `useState`, back/forward has no effect on the filters at all — the component state is untouched by browser navigation.
+- **Bookmarking:** A bookmarked filtered URL stays valid indefinitely and reproduces the same view on return, because the filter state is the URL — there's nothing else to restore. With `useState` or Zustand (without persistence), a bookmark would just reopen `/jobs` with no filters applied, since the in-memory state never survived the original tab closing.
+
+Zustand was ruled out specifically because Zustand state isn't reflected in the URL or browser history by default — it would solve none of the three concerns above without bolting on URL sync manually, which is exactly what `nuqs` already does as its core job.
+
+---
+
+## Why Zustand (Without `persist`) for the Dashboard View
+
+The dashboard's `view` (table/grid) and `showClosedJobs` preference are **session-level UI state**, not user data: they describe how the employer currently wants to look at their own listings during this visit, not something that needs to be remembered forever or synced anywhere. Treating it as durable, persisted data would imply it's meaningful to recover across browser restarts, devices, or even days later — but a layout preference like this is closer to "scroll position" than to "user settings." It's reasonable for it to reset to a sensible default (`table`, closed jobs shown) each time the employer starts a fresh session.
+
+This is why Zustand is the right tool *without* `persist`: it survives client-side navigation (going to `/jobs` and back to `/dashboard/listings` keeps the toggle state, because the store lives in memory for the lifetime of the page/tab), but a full page refresh resets it — which is the desired behaviour here, not a limitation to work around.
+
+**If it did need to persist:** the right storage key would be something like `careerhub-dashboard-prefs`, stored in `localStorage`, since this is a single-device, single-browser UI preference with no need for cross-device sync or server-side knowledge. The tradeoff between `localStorage` and a real user-preferences API endpoint:
+
+- `localStorage` is free, synchronous-feeling, and requires no backend work — but it's tied to one browser on one device, lost on cache-clear, and invisible to the .NET backend (so it could never inform anything server-rendered, like SSR'd default view).
+- A user-preferences API endpoint persists across devices and could be respected during SSR (the server could read it and render the correct initial view directly), but costs a real backend round-trip, a database column for the value, and meaningfully more engineering effort for what's currently just a layout toggle.
+
+For a preference this minor, `localStorage` would be the pragmatic choice if persistence were ever required — but for this assignment, in-memory Zustand correctly models "this doesn't need to survive a refresh."
+
+---
+
+## The Async Server Component / Store Boundary
+
+`ListingsTable.tsx` is an `async` Server Component — it runs on the server, fetches its own data, and is never sent to the browser as executable JavaScript; only its rendered output (HTML) is. Zustand's `useStore` (and any hook, for that matter) depends on React being mounted in the browser with client-side state and re-render capability — there is no "browser" on the server side of a Server Component, so there's no store instance to read from and no mechanism to re-render when it changes. Calling `useStore` inside an `async` Server Component isn't slow or discouraged, it's a hard impossibility — Server Components can't use hooks at all.
+
+The bridge is a **prop-passing pattern**: a thin Client Component wrapper (e.g. a `DashboardListingsClient` or similar) sits between the page and `ListingsTable`. That wrapper:
+
+1. Is marked `"use client"`.
+2. Calls `useStore` (via selectors) to read `view` and `showClosedJobs` from the Zustand store.
+3. Passes those two values down as plain props to `ListingsTable`.
+
+`ListingsTable` itself stays a Server Component, fully unaware that Zustand exists — it just receives `view: "table" | "grid"` and `showClosedJobs: boolean` as props and renders accordingly. This keeps the data-fetching logic on the server (where it belongs — no client-side fetch waterfall) while still letting the client-only UI preference influence what gets rendered, without ever needing the Server Component itself to become a Client Component.
+
+---
+
+## Notes on Implementation Choices
+
+*(Fill in / adjust the bullets below to match your actual code before submitting — these reflect the spec defaults and may need correcting against what you built.)*
+
+- **Location filter input type:** *(text input vs. select — state which you used and why: e.g., a free-text input handles arbitrary/remote locations without needing a maintained list of cities, whereas a select guarantees valid values but requires the list to stay in sync with what jobs actually exist.)*
+- **Stretch A (server-side role check in `ListingsTable`):** *(If implemented — note that `auth()` inside `ListingsTable` checking `session?.user.role === "employer"` before rendering `CloseJobButton` is defence-in-depth, not the primary protection mechanism. Middleware is what actually keeps non-employers off `/dashboard` in the first place; this check only matters if `ListingsTable` were ever reused on a route middleware doesn't cover. State explicitly whether you added this.)*
+- **Stretch B (persisted Zustand store):** *(If implemented — explain the hydration mismatch here: `persist` middleware reads from `localStorage` only on the client, so the very first server-rendered HTML reflects the default state, while the client's first paint after hydration may reflect a different stored value. This mismatch only affects persisted client-side stores because in-memory Zustand stores have no asymmetry — server and client both start from the same hardcoded default, so there's nothing to reconcile.)*
+
+---
+
+## Confirming the Close Button Visibility Claim (Part 5)
+
+`CloseJobButton` requires no additional role check inside `ListingsTable` beyond what middleware already provides, **because middleware is the sole gate on reaching `/dashboard/listings` at all** — a candidate or unauthenticated user is redirected away before the page (and therefore `ListingsTable`) ever renders. Trusting middleware here is correct specifically because this component, as currently used, is *only* ever rendered behind that already-enforced boundary; there's no code path today where `ListingsTable` renders for a non-employer. (See Stretch A above for the defence-in-depth version of this same logic, for the hypothetical case where that assumption stops holding.)

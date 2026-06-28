@@ -66,25 +66,25 @@ export default function HomePage() {
 
       <div className="mt-3 flex flex-wrap justify-center gap-4">
         <Link
-          href="/login/applicant"
+          href="/login"
           className="font-meta rounded-full bg-[var(--amber)] px-6 py-3 text-xs
-                     uppercase text-[var(--ink)] transition-opacity hover:opacity-80"
+                    uppercase text-[var(--ink)] transition-opacity hover:opacity-80"
         >
           Applicant
         </Link>
         <Link
-          href="/login/employer"
+          href="/login"
           className="font-meta rounded-full border border-[var(--line)] bg-[var(--paper)]
-                     px-6 py-3 text-xs uppercase text-[var(--ink)] transition-colors
-                     hover:border-[var(--amber)] dark:border-[var(--line)]
-                     dark:bg-[var(--paper)] dark:text-[var(--ink)]
-                     dark:hover:border-[var(--amber)]"
+                    px-6 py-3 text-xs uppercase text-[var(--ink)] transition-colors
+                    hover:border-[var(--amber)] dark:border-[var(--line)]
+                    dark:bg-[var(--paper)] dark:text-[var(--ink)]
+                    dark:hover:border-[var(--amber)]"
         >
           Employer
         </Link>
       </div>
 
-      <p className="mt-6 text-xs text-[var(--muted-text)] dark:text-[var(--muted-text)]">
+      {/* <p className="mt-6 text-xs text-[var(--muted-text)] dark:text-[var(--muted-text)]">
         New here?{" "}
         <Link
           href="/login/applicant/register"
@@ -92,7 +92,7 @@ export default function HomePage() {
         >
           Create an applicant account
         </Link>
-      </p>
+      </p> */}
     </main>
   );
 }
