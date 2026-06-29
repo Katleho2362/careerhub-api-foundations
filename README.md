@@ -1891,3 +1891,137 @@ The bridge is a **prop-passing pattern**: a thin Client Component wrapper (e.g. 
 ## Confirming the Close Button Visibility Claim (Part 5)
 
 `CloseJobButton` requires no additional role check inside `ListingsTable` beyond what middleware already provides, **because middleware is the sole gate on reaching `/dashboard/listings` at all** — a candidate or unauthenticated user is redirected away before the page (and therefore `ListingsTable`) ever renders. Trusting middleware here is correct specifically because this component, as currently used, is *only* ever rendered behind that already-enforced boundary; there's no code path today where `ListingsTable` renders for a non-employer. (See Stretch A above for the defence-in-depth version of this same logic, for the hypothetical case where that assumption stops holding.)
+
+
+---
+
+# CareerHub Frontend — Assignment 3.1
+
+## Build Output
+
+▲ Next.js 16.2.9 (Turbopack)
+
+✓ Compiled successfully in 9.4s
+
+✓ Finished TypeScript in 5.8s
+
+✓ Collecting page data using 7 workers in 1412ms
+
+✓ Generating static pages using 7 workers (10/10) in 498ms
+
+✓ Finalizing page optimization in 29msRoute (app)
+
+┌ ƒ /
+
+├ ƒ /_not-found
+
+├ ƒ /api/applications
+
+├ ƒ /api/applications/stats
+
+├ ƒ /api/auth/[...nextauth]
+
+├ ƒ /api/jobs
+
+├ ƒ /api/jobs/[id]
+
+├ ƒ /dashboard/listings
+
+├ ƒ /jobs
+
+├ ƒ /jobs/[id]
+
+└ ƒ /login
+
+---
+
+## Part 1 — Written Decisions
+
+### Question 1 — Draft persistence strategy
+
+**Storage key:** `careerhub-application-${jobId}`
+
+The key is scoped to the job ID because a candidate might apply to multiple jobs simultaneously. A single key like `careerhub-application-draft` would mean opening Job B overwrites Job A's draft — the candidate loses their progress silently. Scoping to `jobId` gives each application its own isolated slot in localStorage.
+
+**Different device:** localStorage is device-local — the draft will not transfer to another device. This is acceptable for a draft (not submitted data). If cross-device sync were required, the draft would need to be persisted to a server-side endpoint instead, which is out of scope here.
+
+**When the draft should be cleared:**
+
+- On successful submit — the application is complete, the draft is stale and should not be restored
+- When the candidate clicks "Discard draft" and confirms — explicit user intent to abandon progress
+- Not on page navigation — surviving navigation is the entire purpose of the draft
+
+**Fields safe to store in localStorage:** `fullName`, `email`, `phone`, `coverLetter`, `linkedInUrl`, `hearAboutRole` — all are form inputs the user typed themselves. No server-derived identity data (e.g. `applicantId`) is stored in localStorage. The `applicantId` comes from the authenticated session on the server side only, so it is never exposed to the client draft.
+
+---
+
+### Question 2 — Skeleton loader contract
+
+**Matching dimensions in practice:** The skeleton card must share the same `border-radius`, padding, overall height, and approximate line proportions as the real `JobCard`. Specifically: the same `py-5 pl-6 pr-5` padding, the same `rounded-xl` radius, the same `ring-1` border treatment, and placeholder blocks that approximate the height of the title row, subtitle line, salary line, and footer. If any of these differ, the page will shift when real cards swap in.
+
+**Filter returns 3 jobs but skeleton shows 6:** The user sees 6 skeletons appear, then 3 real cards replace them — the page height drops. This is layout shift, which is worse than no skeleton at all because it moves content the user may already be reading. However, the correct count to show is still a fixed design choice (6), not dynamic — because the result count is unknown before the fetch completes. Six is chosen as a reasonable above-the-fold estimate that fills the grid without overcommitting. The tradeoff is accepted.
+
+**Paired component pattern:** `JobCard` and `JobCardSkeleton` are paired — they must share the same outer dimensions at all times. The skeleton earns its name by being a structural shadow of the real component. They drift apart when `JobCard` gains a new line of text or changes its padding and `JobCardSkeleton` is not updated to match. Drift causes layout shift on every page load and defeats the purpose of the skeleton entirely.
+
+---
+
+### Question 3 — AlertDialog vs the alternatives
+
+| Action | Component | Reason |
+|---|---|---|
+| Close job listing | AlertDialog | Destructive and irreversible — requires explicit confirmation, cannot be dismissed by clicking outside |
+| Discard draft | AlertDialog | Also destructive and irreversible — same reasoning applies |
+
+**The Server Action problem:** `CloseJobButton` uses `useActionState` with a Server Action. `AlertDialog` is a client-side component. `AlertDialogAction` renders in a Radix portal — it is outside any `<form>` element in the DOM. This means `type="submit"` on an element inside `AlertDialogContent` does nothing — there is no form context for it to submit to. The portal breaks the form boundary entirely.
+
+**Solution chosen:** Keep the Server Action but manage dialog open state with `useState` and call the action programmatically using `useTransition` on confirm. When the user clicks "Close listing" in the `AlertDialogAction`, the `onClick` handler calls `startTransition(() => formAction())` directly, bypassing the need for a submit button inside the portal.
+
+---
+
+### Question 4 — Empty state taxonomy
+
+The `/jobs` page can reach an empty state for two completely different reasons, and each requires a different UI response:
+
+| State | Condition | Message | Action |
+|---|---|---|---|
+| 1 | No jobs in DB at all | "No jobs are currently listed." | None — nothing the user can do |
+| 2 | Filters eliminated all results | "No jobs match your search." | "Clear all filters" button — resets all nuqs params |
+
+**Why they are different:** State 1 is an environmental condition — the user is not responsible and cannot fix it. State 2 is caused by the user's own filter choices — they can fix it by clearing filters. Showing a "Clear all filters" button for state 1 would be misleading (clearing filters would still show nothing). Showing no action for state 2 would leave the user stuck with no recovery path.
+
+**Where the distinction happens:** Server-side, in `page.tsx`. The page fetches both the filtered result and the unfiltered total in parallel using `Promise.all`. If `allJobs.length === 0` the database is empty regardless of filters → state 1. If `allJobs.length > 0` but `filteredJobs.length === 0` the filters are the cause → state 2.
+
+---
+
+## Part 2 — Toast Notifications
+
+Toast notifications replace all inline success/error banners. Sonner's `<Toaster />` is mounted in the root layout at `top-right` to avoid conflicting with the nav bar.
+
+**Rules applied:**
+
+- Toasts fire only for API responses and mutations (close job, submit application)
+- Field-level validation errors remain inline, next to the field — they are telling the user to do something differently, not confirming an action they already took
+
+---
+
+## Part 3 — Multi-step Application Wizard
+
+The `ApplicationWizard` replaces `ApplicationForm` with a three-step flow: Your Details → Your Application → Review & Submit.
+
+**Draft storage key decision:** `careerhub-application-${jobId}` — scoped to job ID so simultaneous applications to different jobs do not overwrite each other. A single global key like `careerhub-application-draft` would corrupt whichever draft was written second. If a job's requirements change while a draft is saved, the candidate will see their old answers in the review step — this is acceptable because the fields (name, email, cover letter) are not job-specific and remain valid regardless of requirement changes.
+
+**The Back button and validation:** The Back button intentionally skips validation. If a candidate is on step 2 and wants to correct their email from step 1, they should not be blocked by incomplete step 2 fields they have not filled yet. Validating on Back would trap the user — they cannot go back to fix an earlier mistake without first completing the current step, which they may not be ready to do. Validation only fires on Next, which is the direction of progress.
+
+---
+
+## Part 4 — AlertDialog for Destructive Actions
+
+### Part 4a — CloseJobButton
+
+**Approach chosen:** Keep the Server Action, manage dialog open state with `useState`, call the action programmatically with `useTransition` on confirm.
+
+**Why `type="submit"` inside `AlertDialogContent` does nothing:** `AlertDialogContent` is rendered in a Radix portal, which mounts outside the React component tree in a separate DOM node. Any `<form>` wrapping `CloseJobButton` exists in a different part of the DOM. A `type="submit"` button inside the portal has no `<form>` ancestor to submit — the browser cannot connect them across the portal boundary. The solution is to call the action directly from `onClick` using `startTransition`, which bypasses the form submission mechanism entirely.
+
+### Part 4b — Discard Draft
+
+Pure client-side state manipulation — no Server Action involved. On confirm: `localStorage.removeItem(storageKey)`, `reset(EMPTY_DEFAULTS)`, `setStep(1)`. The "Discard draft" button only renders

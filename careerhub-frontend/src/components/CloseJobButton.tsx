@@ -1,28 +1,54 @@
 "use client";
 
-import { useActionState } from "react";
+import { useEffect, useState, useTransition } from "react";
+import { toast } from "sonner";
 import { closeJobListing } from "@/app/actions/closeJob";
-
-type CloseJobState =
-  | { status: "success"; jobTitle: string }
-  | { status: "error"; message: string }
-  | null;
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 interface CloseJobButtonProps {
   jobId: string;
   jobTitle: string;
   currentStatus: string;
 }
-export function CloseJobButton({ jobId, jobTitle,currentStatus }: CloseJobButtonProps) {
-  // Already closed — render nothing in the Action column
+
+export function CloseJobButton({ jobId, jobTitle, currentStatus }: CloseJobButtonProps) {
   if (currentStatus === "Closed") return null;
 
-  const [state, formAction, isPending] = useActionState<CloseJobState, FormData>(
-    closeJobListing,
-    null
-  );
+  const [closed, setClosed] = useState(false);
+  const [isPending, startTransition] = useTransition();
 
-  if (state?.status === "success") {
+  // Called from AlertDialogAction's onClick — not from a form submit.
+  // AlertDialogAction renders in a Radix portal outside any <form> element,
+  // so type="submit" would do nothing. Instead we call the Server Action
+  // programmatically here inside startTransition.
+  function handleConfirm() {
+    startTransition(async () => {
+      const formData = new FormData();
+      formData.append("jobId", jobId);
+      formData.append("jobTitle", jobTitle);
+
+      const result = await closeJobListing(null, formData);
+
+      if (result?.status === "success") {
+        setClosed(true);
+        toast.success(`"${result.jobTitle}" has been closed.`);
+      } else if (result?.status === "error") {
+        toast.error(result.message);
+      }
+    });
+  }
+
+  if (closed) {
     return (
       <span className="text-xs text-emerald-600 dark:text-emerald-400">
         Closed ✓
@@ -31,27 +57,40 @@ export function CloseJobButton({ jobId, jobTitle,currentStatus }: CloseJobButton
   }
 
   return (
-    <div>
-      <form action={formAction}>
-        <input type="hidden" name="jobId" value={jobId} />
-        <input type="hidden" name="jobTitle" value={jobTitle} />
+    <AlertDialog>
+      <AlertDialogTrigger asChild>
         <button
-            type="submit"
-            disabled={isPending}
-            className="font-meta rounded-full border border-rose-300 px-3 py-1
-                    text-xs uppercase text-rose-600 transition-colors
-                    hover:bg-rose-50 disabled:cursor-not-allowed
-                    disabled:opacity-50 dark:border-rose-800
-                    dark:text-rose-400 dark:hover:bg-rose-950"
+          disabled={isPending}
+          className="font-meta rounded-full border border-rose-300 px-3 py-1
+                     text-xs uppercase text-rose-600 transition-colors
+                     hover:bg-rose-50 disabled:cursor-not-allowed
+                     disabled:opacity-50 dark:border-rose-800
+                     dark:text-rose-400 dark:hover:bg-rose-950"
         >
-            {isPending ? "Closing…" : "Close"}
+          {isPending ? "Closing…" : "Close"}
         </button>
-        </form>
-      {state?.status === "error" && (
-        <p className="mt-1 text-xs text-rose-600 dark:text-rose-400">
-          {state.message}
-        </p>
-      )}
-    </div>
+      </AlertDialogTrigger>
+
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Close this listing?</AlertDialogTitle>
+          <AlertDialogDescription>
+            This listing will be marked as closed and removed from the public
+            jobs board. This cannot be undone.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Keep listing</AlertDialogCancel>
+          {/* onClick, not type="submit" — this element is in a Radix portal,
+              outside any <form>, so submit would be a no-op */}
+          <AlertDialogAction
+            onClick={handleConfirm}
+            className="bg-rose-600 text-white hover:bg-rose-700"
+          >
+            Close listing
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
