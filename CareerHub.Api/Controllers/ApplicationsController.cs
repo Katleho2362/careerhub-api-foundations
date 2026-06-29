@@ -19,15 +19,22 @@ public class ApplicationsController(IApplicationService applicationService) : Co
     // SUBMIT APPLICATION
     // POST /jobs/{jobId}/applications
     // =====================================================
-    [EnableRateLimiting("apply")]
-    [Authorize(Roles = "Applicant")]
-    [HttpPost]
-    [Route("api/v{version:apiVersion}/jobs/{jobId:guid}/applications")]
-    public async Task<IActionResult> SubmitApplication(Guid jobId, SubmitApplicationRequest request)
-    {
-        var result = await _applicationService.SubmitApplicationAsync(jobId, request);
-        return CreatedAtAction(nameof(GetApplications), new { jobId }, result);
-    }
+        [EnableRateLimiting("apply")]
+        [Authorize(Roles = "Applicant")]
+        [HttpPost]
+        [Route("api/v{version:apiVersion}/jobs/{jobId:guid}/applications")]
+        public async Task<IActionResult> SubmitApplication(Guid jobId, SubmitApplicationRequest request)
+        {
+            // Extract applicantId from the JWT — never trust the request body for identity
+            var applicantIdClaim = User.FindFirst("applicantId")?.Value;
+            if (!Guid.TryParse(applicantIdClaim, out var applicantId))
+                return Unauthorized();
+
+            request.ApplicantId = applicantId;
+
+            var result = await _applicationService.SubmitApplicationAsync(jobId, request);
+            return CreatedAtAction(nameof(GetApplications), new { jobId }, result);
+        }
 
     // =====================================================
     // GET APPLICATIONS FOR A JOB
