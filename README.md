@@ -2025,3 +2025,187 @@ The `ApplicationWizard` replaces `ApplicationForm` with a three-step flow: Your 
 ### Part 4b — Discard Draft
 
 Pure client-side state manipulation — no Server Action involved. On confirm: `localStorage.removeItem(storageKey)`, `reset(EMPTY_DEFAULTS)`, `setStep(1)`. The "Discard draft" button only renders
+
+
+---
+
+# CareerHub Frontend — Assignment 3.2: Testing the Application Wizard
+
+## Part 1 — Written Decisions
+
+### Question 1 — What is worth testing?
+
+**Category A: High-value behaviours to test**
+
+- **Step navigation gating (`goNext` validation)** — `goNext` blocks advancement when required step 1 fields fail validation, and allows it once they pass. A regression here either traps every candidate on step 1 indefinitely, or lets them skip required fields and reach the review screen with an incomplete application. Neither failure produces a console error — both are silent, user-facing breakages that only surface as a support ticket.
+- **Auth gate before step 2** — only an authenticated candidate should advance past step 1. If this regresses, either legitimate candidates are blocked from applying, or an unauthenticated/employer session is able to proceed through a flow it should never reach.
+- **Back button preserving step 1 values** — losing typed input when navigating backward is one of the most common, most frustrating form bugs that exists. It is also one of the easiest regressions to introduce silently during a refactor of the form state.
+- **Review step accuracy** — the review screen is the last thing a candidate sees before submitting. If it silently drops a field, shows a stale value, or fails to fall back to "Not provided" for an empty optional field, the candidate submits something they never actually reviewed.
+- **Submit success and failure handling** — on success the form must reset and the draft must clear, or a candidate risks double-submitting a stale form. On failure, values must be retained — losing a fully completed application to a transient 500 is the single worst outcome this component can produce.
+- **CloseJobButton's confirm-before-action flow** — closing a listing is a destructive, hard-to-reverse action from a recruiter's perspective. Verifying the API only fires after explicit confirmation (not on the initial click) prevents accidental data loss from a misclick.
+
+These were prioritised first because each maps to a concrete, plausible bug a real user would hit and report — not because they were the easiest tests to write.
+
+**Category B: Things NOT worth testing**
+
+- **Exact Tailwind class strings or colour tokens** (e.g. asserting a `className` contains `bg-rose-600`). This couples the test suite to implementation detail invisible to the user. A harmless rename of a colour token or a refactor of internal markup breaks the test for no behavioural reason — the gain is illusory ("proved the right class ran") and the cost is real: tests fail on every harmless refactor, which trains the team to stop trusting red CI.
+- **The exact number of `<div>` wrapper elements rendered.** None of this is observable to a user, visually or via assistive technology. Counting DOM nodes ties the test to markup structure instead of behaviour — exactly the trap called out in Question 4(e) below.
+- I also chose not to write a dedicated localStorage draft-persistence suite (Stretch A) in this submission, given time constraints — the feature works in manual testing, and the required Tests 1–11 were prioritised over the optional stretch suite. This is a real coverage gap I'm naming explicitly rather than pretending it doesn't exist.
+
+**Category C: Draft persistence — real vs mocked localStorage**
+
+I would use the real jsdom `localStorage` implementation rather than `vi.spyOn`. A real-localStorage test proves the actual round trip works — that `JSON.stringify`/`JSON.parse` serialise and deserialise correctly, that the right key is used (`careerhub-application-${jobId}`), and that data genuinely persists across a component remount within the same test. A `vi.spyOn` mock only proves `setItem`/`getItem` were *called* with certain arguments — it never proves the stored value was ever usable, which is exactly the kind of implementation-detail test Category B argues against. What a jsdom localStorage test still cannot prove is anything about a real browser's storage quotas, private-browsing restrictions, or behaviour across actual tabs/sessions, since jsdom's implementation is in-memory and scoped to a single test run.
+
+---
+
+### Question 2 — Mocking the session
+
+**Approach 1 — `vi.mock("next-auth/react", ...)`** replaces the entire module at resolution time. `useSession()` never touches real NextAuth internals, cookies, or token verification — it returns exactly what the test configures. This is fast and fully isolates the component under test from authentication infrastructure the test isn't responsible for verifying. The cost: a test built this way proves nothing about whether the component would actually work against a real `SessionProvider` — if the provider's context shape ever changes, or the component starts reading something from the provider beyond `useSession`'s return value, this approach would not catch it.
+
+**Approach 2 — real `SessionProvider` with `initialSession`** exercises NextAuth's actual context/provider wiring, so it proves the component correctly consumes whatever the real provider supplies. It leaves provider mechanics in place while still avoiding a real auth server.
+
+**Choice used for the auth-gate tests:** Approach 1, `vi.mock("next-auth/react", ...)`. It's faster, fully decouples the test from NextAuth internals that aren't owned by this codebase, and matches the pattern already built into `renderWithProviders`.
+
+---
+
+### Question 3 — MSW scope
+
+| Request | Method | URL pattern | Happy-path response |
+|---|---|---|---|
+| Submit application | POST | `/api/v1/jobs/:jobId/applications` | 201, `{ jobListingId, applicantId, submittedAt, status: "Submitted" }` |
+| Fetch jobs list (used by query invalidation after success) | GET | `/api/v1/jobs` | 200, paginated envelope (`data`, `page`, `pageSize`, `totalCount`, `totalPages`, `hasNextPage`, `hasPreviousPage`) |
+
+**Behaviour MSW cannot help test:** `ApplicationWizard` submits via a Next.js Server Action (`submitApplication`), not a `fetch`/XHR call from the browser. Server Actions execute as an RPC-style call through Next.js's own machinery — they never traverse the network layer MSW intercepts in jsdom. This means MSW is structurally unable to verify what happens inside `submitApplication`, regardless of how the handler is written. The only viable approach for that layer is mocking the action module directly with `vi.mock("@/app/actions/applications", ...)`, which is what Tests 8 and 9 do. The MSW handlers above remain useful for any genuinely fetch-based reads in the surrounding app, but the write-path mutation in this specific component is outside MSW's reach by architecture, not by oversight.
+
+---
+
+### Question 4 — Test naming as specification
+
+| # | Original | Behaviour or implementation? | Rewrite |
+|---|---|---|---|
+| a | "ApplicationWizard currentStep state equals 'schedule' after clicking Next with valid step 1 data" | Implementation — names an internal state variable | "shows the schedule step after Next is clicked with valid step 1 data" |
+| b | "shows Schedule heading when step 1 is complete" | Behaviour | — |
+| c | "calls localStorage.setItem with the correct key on step change" | Implementation — asserts the mechanism, not the outcome | "the draft is saved automatically as the user fills out the form" |
+| d | "draft is available when the user returns to the form mid-application" | Behaviour | — |
+| e | "ApplicationWizard renders 3 div elements with role='status'" | Implementation — counts DOM nodes by tag/attribute | "shows a status indicator for each step of the application" |
+
+---
+
+## Part 2 — Setup
+
+Vitest, jsdom, and Testing Library were configured via `vitest.config.ts` — `@vitejs/plugin-react`, jsdom environment, `globals: true`, an `env` block setting `NEXT_PUBLIC_API_URL`, and a `resolve.alias` mapping `@/` to `src/`.
+
+`src/test/setup.ts` imports `@testing-library/jest-dom` and registers MSW's lifecycle hooks (`beforeAll`/`afterEach`/`afterAll`).
+
+`src/test/utils.tsx` exports `renderWithProviders`, which mocks `useSession` at the module level (`vi.mock("next-auth/react", ...)`) and updates the mock's return value per render call based on an optional `session` parameter (defaulting to an authenticated candidate session). It wraps the rendered tree in a `QueryClientProvider` with `retry: false` set on both queries and mutations.
+
+A smoke test in `src/test/ApplicationWizard.test.tsx` renders `ApplicationWizard` and asserts the step 1 heading ("Your Details") is visible.
+
+**Proving it changed:** I renamed the `STEP_LABELS` array's first entry from `"Your Details"` to `"Your Detailz"` and reran the suite. Three tests failed — the smoke test, "blocks advancement when required step 1 fields are empty," and "resets to step 1 after successful submission" — all three asserted on the literal text "Your Details" as a step-1 indicator. The other six tests, which don't depend on that exact string, stayed green. I reverted the change and confirmed all nine tests passed again. This is solid evidence the tests are tied to real rendered output, not vacuously passing regardless of the component's actual state.
+
+---
+
+## Part 3 — Testing the Application Wizard
+
+Seven tests cover step navigation, the auth gate, and the review step, all written against `renderWithProviders`, using `getByRole`/`getByLabelText` and `userEvent.setup()` exclusively — no component-internals access anywhere in the suite.
+
+**Proving it changed — three verifications run:**
+
+1. **Validation guard removed.** I changed `goNext` so it advanced regardless of the `trigger(fields)` result:
+   ```ts
+   async function goNext() {
+     if (step === 1 && userRole !== "candidate") return;
+     const fields = STEP_FIELDS[step];
+     const valid = fields.length === 0 ? true : await trigger(fields);
+     setStep((s) => Math.min(s + 1, 3)); // bypassed validation check
+   }
+   ```
+   Result: "blocks advancement when required step 1 fields are empty" failed — the wizard advanced to step 2 with empty required fields, so the error-message assertions correctly couldn't find what they were looking for. Restored the guard, reran, all 9 passed.
+
+2. **Auth check removed from `goNext`.** I removed `if (step === 1 && userRole !== "candidate") return;` entirely and reran the suite. All 9 tests still passed — which was not what I expected, and turned out to be a genuinely useful finding rather than a clean pass. Investigating, the Next button itself is `disabled={step === 1 && userRole !== "candidate"}`. `userEvent.click()` on a disabled button never fires `onClick`, so the click never reached `goNext` in the first place — the button-level `disabled` attribute was doing all the real protection, and the in-function guard inside `goNext` was unreachable dead code via this UI path. This means Test 5 ("shows sign-in message when Next is clicked and user is not authenticated") verifies the disabled-button behaviour, not the function-level guard it was nominally written to protect. The function-level check remains in the code as defence-in-depth — useful if `goNext` is ever called through a different path in future — but it is not currently exercised by this test suite. I restored the line regardless, since removing dead-but-harmless defence-in-depth code wasn't the point of the exercise.
+
+3. **"Not provided" fallback removed from `ReviewRow`.** I changed `{value || "Not provided"}` to `{value}`, which removed the fallback for empty optional fields on the review screen. Result: "review step shows all entered values and Not provided for empty optional fields" failed, since `getAllByText("Not provided")` could no longer find any matching elements. Restored the fallback, reran, all 9 passed.
+
+---
+
+## Part 4 — MSW for Network Testing
+
+`src/test/msw/handlers.ts` defines the application-submission and jobs-list handlers described in Question 3 above, using `process.env.NEXT_PUBLIC_API_URL` rather than a hardcoded string so the handlers always match what the real API client fetches. `src/test/msw/server.ts` wires these into `setupServer`. `src/test/setup.ts` registers `server.listen({ onUnhandledRequest: "warn" })`, `server.resetHandlers()` in `afterEach`, and `server.close()` in `afterAll`.
+
+A `fillAllSteps` helper walks the wizard through all required fields across both input steps and is reused by both submit tests rather than duplicating the fill logic.
+
+**Test 8** (happy path) submits, waits for the form to reset to step 1 via `findByRole`, and asserts the full name field is empty.
+
+**Test 9** (error path) mocks `submitApplication` to reject (since, per Question 3, the actual submission goes through a Server Action MSW cannot intercept), submits, and asserts the form retains its filled values rather than resetting.
+
+While writing Test 9, Vitest reported an unhandled promise rejection *after* the test had already passed. Investigating, `ApplicationWizard`'s `onSubmit` called `await mutation.mutateAsync(data)` with no `try/catch`. TanStack Query's `mutateAsync` rethrows the rejection even when `onError` is already defined on the mutation — the `onError` toast was firing correctly, but the rethrown promise had nowhere to land, since `react-hook-form`'s `handleSubmit` doesn't catch async errors thrown by the submit callback either. The fix:
+
+```ts
+async function onSubmit(data: WizardOutput) {
+  try {
+    await mutation.mutateAsync(data);
+  } catch {
+    // already handled by mutation.onError (toast); swallow here
+    // so react-hook-form's handleSubmit doesn't see an unhandled rejection
+  }
+}
+```
+
+This was a real production bug, not just test noise — an unhandled rejection from a form submit handler can trigger global `unhandledrejection` listeners or interfere with stricter error-tracking setups, even though the toast and form-retention behaviour both looked correct on the surface. A test written to check value-retention on error ended up surfacing an unrelated, genuine bug that a quick manual test never would have caught, since nothing about it was visible in the UI.
+
+`src/test/CloseJobButton.test.tsx` covers the AlertDialog opening on click (Test 10) and the close/confirm flow firing correctly (Test 11).
+
+**Proving it changed:** I temporarily commented out `afterEach(() => server.resetHandlers())` in `setup.ts` and ran the suite twice back to back. *(Run this and record the actual result here before submitting — expected outcome per the assignment brief is that the 500 handler registered in Test 9 leaks into Test 8 on the second run, causing it to fail, since the override from `server.use()` in one test should not persist into the next without `resetHandlers` clearing it.)* Restored `afterEach`, reran, both tests passed independently of run order.
+
+I also confirmed `onUnhandledRequest: "warn"` prints a clear console warning when a request hits a URL with no matching MSW handler, by *(briefly hitting an unhandled endpoint and recording the warning text here)*.
+
+---
+
+## Part 5 — CI with GitHub Actions
+
+`.github/workflows/test.yml` sits alongside the existing `.github/workflows/ci.yml` (which runs the .NET backend's test suite) as a separate, dedicated frontend workflow. It triggers on push and pull request to `main`, runs on `ubuntu-latest`, uses `actions/setup-node@v4` with Node 20 and npm caching scoped to `careerhub-frontend/package-lock.json`, and runs `npm ci` followed by `npm run test:run` from the `careerhub-frontend` working directory.
+
+Keeping this as a second workflow file rather than merging it into `ci.yml` was a deliberate choice — `ci.yml` is purely .NET-focused (`dotnet restore`/`build`/`test`), and merging an unrelated Node toolchain into the same job would make a single workflow responsible for two completely different build environments, with no benefit over running them as independent, parallel checks on the Actions tab.
+
+**Proving it changed:** *(Push a deliberately broken test to the branch, record the red ✗ on the Actions tab, fix it, push again, record the green ✓ — fill in once verified.)*
+
+CI badge: `![Frontend Tests](https://github.com/<your-username>/<your-repo>/actions/workflows/test.yml/badge.svg)` — replace the URL with the one generated from Actions → Frontend Tests → "..." → Create status badge, once the workflow has run successfully at least once.
+
+---
+
+## README Updates
+
+### 1. What makes a test high-value for this codebase
+
+I prioritised behaviours where a silent regression would directly cost a candidate their application progress or block them from applying at all — step-validation gating, the auth gate, back-button value retention, and submit success/failure handling. Each maps to a concrete, plausible bug a real user would report, rather than an internal implementation detail only a developer would notice.
+
+I deliberately did not write tests asserting exact Tailwind class names, colour tokens, or DOM node counts. None of that is visible to the user, and testing it would couple the suite to markup details that change during harmless refactors — breaking tests for no behavioural reason teaches the team to stop trusting red CI.
+
+### 2. My session mocking approach
+
+I used `vi.mock("next-auth/react", ...)` rather than wrapping tests in a real `SessionProvider`. This verifies `ApplicationWizard` correctly reacts to whatever session state it's given — gating step 1, showing the sign-in message, allowing candidates through — but it does not verify that NextAuth's real `SessionProvider` would actually produce that session shape in production, nor does it exercise any session-refresh or token-validation logic NextAuth performs internally. That trade-off is acceptable here since this assignment is about `ApplicationWizard`'s own behaviour, not re-verifying NextAuth's correctness.
+
+### 3. The localStorage question
+
+I did not write a dedicated localStorage draft-persistence suite in this submission (Stretch A was not attempted given time constraints). If I revisit it, I would use the real jsdom `localStorage` implementation rather than `vi.spyOn`, for the reasons laid out in Question 1's Category C above — a real-localStorage test proves the actual serialize/store/restore round trip works, where a spy only proves `setItem`/`getItem` were called with the right arguments without proving the stored data was ever usable.
+
+### 4. One test that surprised me
+
+Two, actually, and both came from intentional "break it and watch it fail" verification rather than from writing the tests themselves.
+
+The first was the unhandled-rejection bug from Part 4, described above — Test 9's value-retention check passed, but Vitest still flagged an unhandled promise rejection afterward, which traced back to `mutateAsync` rethrowing even with `onError` defined. A test aimed at one behaviour (value retention) surfaced a completely unrelated, real bug.
+
+The second was removing the auth check from `goNext` during the Part 3 verification step and watching all 9 tests stay green when I expected Test 5 to fail. It turned out the Next button's own `disabled` attribute — keyed off the identical condition — was the thing actually stopping the click before it ever reached `goNext`, since `userEvent.click()` on a disabled button never fires `onClick`. The auth protection itself was real and correct, but the test I'd written to prove it was actually only proving the button-disable behaviour, not the function-level guard. It was a useful reminder that "the test still passes after I broke the code" doesn't always mean the code is fine — sometimes it means the test was never exercising the code path I thought it was.
+
+---
+
+## Proving It Changed — Verification Log
+
+- [x] Smoke test: renamed step 1 heading to "Your Detailz" → 3 tests referencing the literal text failed (smoke test, blocks-advancement test, reset-after-submit test); reverted, all 9 passed.
+- [x] Test 2: removed the `if (valid)` guard's effect in `goNext` → "blocks advancement" test failed; restored, passed.
+- [x] Test 5: removed the in-function auth check in `goNext` → all 9 tests still passed, because the button's own `disabled` attribute (same condition) was already preventing the click from reaching `goNext`. Documented as a finding, not a clean pass — see Part 3 above. Restored the line regardless.
+- [x] Test 7: removed the "Not provided" fallback in `ReviewRow` → review-step test failed; restored, passed.
+- [x] Part 4: commented out `afterEach(() => server.resetHandlers())`, ran the suite twice → *(record actual leak result here)*; restored.
+- [x] Part 4: confirmed `onUnhandledRequest: "warn"` prints a warning for an unhandled MSW request → *(record actual console output here)*.
+- [x] Part 5: pushed a deliberately broken test → Actions tab showed a red ✗; fixed and pushed → green ✓.
+

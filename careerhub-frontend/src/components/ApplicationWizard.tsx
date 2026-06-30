@@ -20,7 +20,6 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 
-
 // ── Schema ────────────────────────────────────────────────────────────────────
 
 const wizardSchema = z
@@ -96,7 +95,6 @@ export function ApplicationWizard({
   userRole,
   applicantName,
 }: ApplicationWizardProps) {
-   console.log("ApplicationWizard jobId:", jobId);  
   const storageKey = `careerhub-application-${jobId}`;
   const queryClient = useQueryClient();
 
@@ -134,9 +132,6 @@ export function ApplicationWizard({
   }, [storageKey, reset]);
 
   // ── Auto-save on every field change ──────────────────────────────────────
-  // watch() returns an unsubscribe function — must be returned from useEffect
-  // so it cleans up on unmount. Without cleanup, the subscription leaks and
-  // runs on every render rather than only on value changes.
 
   useEffect(() => {
     const subscription = watch((values) => {
@@ -154,8 +149,6 @@ export function ApplicationWizard({
 
   const mutation = useMutation({
     mutationFn: (data: WizardOutput) => {
-      // fullName and email are collected for UX but not sent to submitApplication
-      // since the server already knows the authenticated user
       const { fullName, email, ...payload } = data;
       void fullName;
       void email;
@@ -186,24 +179,26 @@ export function ApplicationWizard({
   // ── Navigation ────────────────────────────────────────────────────────────
 
   async function goNext() {
-    // Block non-candidates from advancing past step 1
     if (step === 1 && userRole !== "candidate") return;
-
     const fields = STEP_FIELDS[step];
     const valid = fields.length === 0 ? true : await trigger(fields);
     if (valid) setStep((s) => Math.min(s + 1, 3));
   }
 
   function goBack() {
-    // No validation on back — user may need to pass through an incomplete
-    // step to reach a previous one. Blocking them would trap them in the wizard.
     setStep((s) => Math.max(s - 1, 1));
   }
 
-  async function onSubmit(data: WizardOutput) {
-    await mutation.mutateAsync(data);
-  }
-
+  // async function onSubmit(data: WizardOutput) {
+  //   await mutation.mutateAsync(data);
+  // }
+    async function onSubmit(data: WizardOutput) {
+      try {
+        await mutation.mutateAsync(data);
+      } catch {
+ 
+      }
+    }
   // ── Employer guard ────────────────────────────────────────────────────────
 
   if (userRole === "employer") {
@@ -237,7 +232,7 @@ export function ApplicationWizard({
         </div>
       )}
 
-      {/* Discard draft button — only when a draft exists in localStorage */}
+      {/* Discard draft button */}
       {hasDraft && (
         <div className="mb-4 flex justify-end">
           <DiscardDraftButton onConfirm={discardDraft} />
@@ -252,8 +247,9 @@ export function ApplicationWizard({
         {/* ── Step 1: Your Details ── */}
         {step === 1 && (
           <>
-            <Field label="Full name" error={errors.fullName?.message}>
+            <Field htmlFor="fullName" label="Full name" error={errors.fullName?.message}>
               <input
+                id="fullName"
                 type="text"
                 {...register("fullName")}
                 aria-invalid={!!errors.fullName}
@@ -261,8 +257,9 @@ export function ApplicationWizard({
               />
             </Field>
 
-            <Field label="Email" error={errors.email?.message}>
+            <Field htmlFor="email" label="Email" error={errors.email?.message}>
               <input
+                id="email"
                 type="email"
                 {...register("email")}
                 aria-invalid={!!errors.email}
@@ -270,8 +267,9 @@ export function ApplicationWizard({
               />
             </Field>
 
-            <Field label="Phone (optional)" error={errors.phone?.message}>
+            <Field htmlFor="phone" label="Phone (optional)" error={errors.phone?.message}>
               <input
+                id="phone"
                 type="tel"
                 {...register("phone")}
                 aria-invalid={!!errors.phone}
@@ -279,7 +277,6 @@ export function ApplicationWizard({
               />
             </Field>
 
-            {/* Inline message for non-candidates — no redirect */}
             {userRole !== "candidate" && (
               <p className="rounded-lg border border-[var(--line)] bg-[var(--canvas)] px-3 py-2 text-sm text-[var(--muted-text)]">
                 You need to be signed in as a candidate to apply.{" "}
@@ -294,8 +291,9 @@ export function ApplicationWizard({
         {/* ── Step 2: Your Application ── */}
         {step === 2 && (
           <>
-            <Field label="Cover letter (optional)" error={errors.coverLetter?.message}>
+            <Field htmlFor="coverLetter" label="Cover letter (optional)" error={errors.coverLetter?.message}>
               <textarea
+                id="coverLetter"
                 rows={5}
                 {...register("coverLetter")}
                 aria-invalid={!!errors.coverLetter}
@@ -303,8 +301,9 @@ export function ApplicationWizard({
               />
             </Field>
 
-            <Field label="LinkedIn URL (optional)" error={errors.linkedInUrl?.message}>
+            <Field htmlFor="linkedInUrl" label="LinkedIn URL (optional)" error={errors.linkedInUrl?.message}>
               <input
+                id="linkedInUrl"
                 type="url"
                 {...register("linkedInUrl")}
                 aria-invalid={!!errors.linkedInUrl}
@@ -314,10 +313,12 @@ export function ApplicationWizard({
             </Field>
 
             <Field
+              htmlFor="hearAboutRole"
               label="How did you hear about this role?"
               error={errors.hearAboutRole?.message}
             >
               <select
+                id="hearAboutRole"
                 {...register("hearAboutRole")}
                 aria-invalid={!!errors.hearAboutRole}
                 className={inputCn(!!errors.hearAboutRole)}
@@ -421,17 +422,24 @@ function StepIndicator({ current, labels }: { current: number; labels: string[] 
 }
 
 function Field({
+  htmlFor,
   label,
   error,
   children,
 }: {
+  htmlFor: string;
   label: string;
   error?: string;
   children: React.ReactNode;
 }) {
   return (
     <div>
-      <label className="font-meta text-xs uppercase text-[var(--muted-text)]">{label}</label>
+      <label
+        htmlFor={htmlFor}
+        className="font-meta text-xs uppercase text-[var(--muted-text)]"
+      >
+        {label}
+      </label>
       <div className="mt-1">{children}</div>
       {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
     </div>
@@ -471,7 +479,6 @@ function DiscardDraftButton({ onConfirm }: { onConfirm: () => void }) {
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>Keep draft</AlertDialogCancel>
-          {/* onClick not type="submit" — portal is outside the wizard <form> */}
           <AlertDialogAction
             onClick={onConfirm}
             className="bg-rose-600 text-white hover:bg-rose-700"
