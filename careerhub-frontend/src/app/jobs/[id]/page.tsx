@@ -3,13 +3,35 @@ import Link from "next/link";
 import { fetchJobById } from "@/lib/api";
 import { isJobActive } from "@/lib/job-status";
 import { auth } from "@/auth";
-//import { ApplicationForm } from "@/components/ApplicationForm";
-
-import { ApplicationWizard } from "@/components/ApplicationWizard";
+import { ApplicationWizard } from "@/components/ApplicationWizardLoader";
 import { EmploymentTypeBadge, JobStatusBadge } from "@/components/JobStatusBadge";
+import type { Metadata } from "next";
 
 interface JobDetailPageProps {
   params: Promise<{ id: string }>;
+}
+
+export async function generateMetadata({
+  params,
+}: JobDetailPageProps): Promise<Metadata> {
+  const { id } = await params;
+  const job = await fetchJobById(id);
+
+  if (job === null) {
+    return { title: "Job Not Found" };
+  }
+
+  const description = `Apply for ${job.title} at ${job.companyName} in ${job.location}.`;
+
+  return {
+    title: job.title,
+    description,
+    openGraph: {
+      title: job.title,
+      description,
+      type: "website",
+    },
+  };
 }
 
 export default async function JobDetailPage({ params }: JobDetailPageProps) {
@@ -103,7 +125,6 @@ export default async function JobDetailPage({ params }: JobDetailPageProps) {
                 Employers cannot apply for jobs.
               </p>
             </div>
-
           ) : !session ? (
             // Signed out — show sign-in prompt
             <div
@@ -124,7 +145,6 @@ export default async function JobDetailPage({ params }: JobDetailPageProps) {
                 </Link>
               </p>
             </div>
-
           ) : active ? (
             // Candidate + job open — show form
             <ApplicationWizard
@@ -133,7 +153,6 @@ export default async function JobDetailPage({ params }: JobDetailPageProps) {
               userRole={session?.user?.role}
               applicantName={session?.user?.name ?? ""}
             />
-
           ) : (
             // Candidate + job closed
             <div
