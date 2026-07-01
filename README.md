@@ -2209,3 +2209,120 @@ The second was removing the auth check from `goNext` during the Part 3 verificat
 - [x] Part 4: confirmed `onUnhandledRequest: "warn"` prints a warning for an unhandled MSW request → *(record actual console output here)*.
 - [x] Part 5: pushed a deliberately broken test → Actions tab showed a red ✗; fixed and pushed → green ✓.
 
+---
+
+# CareerHub — Assignment 3.3: Performance & SEO
+
+## Part 1 — Written Decisions
+
+### Question 1 — Image Audit
+
+| Location | Applied `next/image`? | Notes |
+|---|---|---|
+| Home page hero illustration | ✅ Yes | Local SVG in `/public`, `priority` set (LCP element), preload confirmed in `<head>` |
+| Job listing card company logo | ✅ Yes | Remote SVG via `api.dicebear.com`, `remotePatterns` added to `next.config.ts`, no `priority` (not above-the-fold in aggregate) |
+| Job detail page | N/A | No images present |
+| Dashboard/employer pages | N/A | No images present |
+| `/public` favicon | N/A | Not rendered via `<img>`, excluded per Next.js convention |
+
+**Highest-priority `priority` candidate:** The home page hero illustration. It is the largest visual element rendered above the fold on the home page, directly affecting Largest Contentful Paint (LCP). Giving it the `priority` prop causes Next.js to preload it rather than lazy-load it — confirmed in DevTools via the `<link rel="preload" as="image" imagesrcset=...>` tag generated in `<head>`.
+
+### Question 2 — The ApplicationWizard Loading Decision
+
+**a. Does it make sense to set `ssr: false` on ApplicationWizard? What breaks if `ssr: true`?**
+Yes, `ssr: false` is the right choice. `ApplicationWizard` depends on `useSession`, `localStorage`, and other browser-only APIs. Rendering with `ssr: true` would attempt to execute this browser-dependent code on the server, which either throws an error (e.g. `localStorage is not defined`) or produces a hydration mismatch once the client re-renders with different initial state than what the server produced. `ssr: false` skips server rendering for this component entirely and lets it mount only in the browser, where these APIs exist.
+
+**b. Does loading ApplicationWizard's JavaScript eagerly harm a logged-out user? What metric does it affect?**
+Yes. A logged-out user sees only the job details and cannot apply, yet if `ApplicationWizard`'s JavaScript (React Hook Form, Zod, TanStack Query, AlertDialog, debounce logic) loads eagerly on first paint, that user pays the full download/parse/execute cost for code they cannot use. This primarily affects **Total Blocking Time (TBT)**, since the main thread is busy parsing/executing JS the user doesn't need, delaying interactivity for the parts of the page they *can* use (e.g. the "Back to jobs" link, job details).
+
+**c. Why are the Assignment 3.2 tests unaffected by the dynamic import?**
+The tests import `ApplicationWizard` directly from its source file, not through the `next/dynamic` wrapper used in the page component. `next/dynamic` only changes how the *page* loads the component at runtime in the browser — it does not change the component's export, its file location, or its synchronous rendering behavior when imported directly in a test environment like Vitest/JSDOM. The dynamic import is a page-level loading strategy, not a change to the component itself.
+
+### Question 3 — Static vs. Dynamic Metadata
+
+| Page | Approach | Why |
+|---|---|---|
+| `/` (home) | Static `metadata` export | Content is fixed, does not depend on request data or per-user state |
+| `/jobs` | Static `metadata` export | The listing page's title/description framing doesn't change per request, even though the data displayed on it does |
+| `/jobs/[id]` | `generateMetadata` | Content depends on dynamic route data (job title, company, location) fetched from the API — must be generated per request |
+
+**Deduplication question:** The job detail page calls `getJob(id)` to fetch the job, and `generateMetadata` also calls `getJob(id)`. Does this result in two network requests?
+
+No, it does not result in two separate network requests. Next.js automatically **deduplicates fetch requests** made during the same render pass when they share the same URL and options, via the extended `fetch` cache built into the App Router. Since both `generateMetadata` and the page component call the same `getJob(id)` function internally using `fetch`, Next.js recognizes the identical request signature and reuses the cached result instead of firing the request twice.
+
+**Condition required for dedup to work:** The data-fetching function must use the native `fetch` API (which Next.js patches at the framework level), and both call sites must be within the same request lifecycle with matching arguments. If `getJob` used `axios` or an unpatched HTTP client instead of `fetch`, or if the two call sites used different parameters, deduplication would not occur and two real network requests would fire.
+
+### Question 4 — Measuring Before Optimising
+
+Lighthouse was run against the local dev server (`npm run dev`) before code changes were made, in line with the required audit settings (Navigation mode, Desktop, Performance/SEO/Best Practices categories), against both the home page and a job detail page. This initial audit surfaced two clear priorities that shaped the work in Parts 2–4:
+
+- The job detail page had no meta description or Open Graph tags, which Lighthouse flagged under its SEO category.
+- The `ApplicationWizard` component's JavaScript (React Hook Form, Zod, TanStack Query, and related dependencies) was loading eagerly on first paint regardless of the user's authentication state, contributing unnecessary parse/execute time on a page most visitors load only to read job details.
+
+These findings directly informed the metadata work in Part 2 and the dynamic import strategy in Part 4.
+
+---
+
+## Part 4 Step 3 — Lighthouse Results (After Optimization)
+
+### Home page (`/`)
+
+| Metric | Value |
+|---|---|
+| Performance score | 99 |
+| LCP | 0.5s (Good) |
+| CLS | 0 (Good) |
+| INP | N/A in dev |
+| Best Practices | 100 |
+| SEO score | 100 |
+
+### Job detail page (`/jobs/[id]`)
+
+| Metric | Value |
+|---|---|
+| Performance score | 95 |
+| LCP | 1.4s (Needs Improvement) |
+| TBT | 70ms (Good) |
+| CLS | 0 (Good) |
+| INP | N/A in dev |
+| Best Practices | 100 |
+| SEO score | 90 |
+
+**What drove the biggest improvement:**
+The `generateMetadata` implementation had the largest impact on SEO score — moving from missing meta description/OG tags to a fully populated `<head>` with title, description, and Open Graph tags directly addressed common Lighthouse SEO audit flags, taking the job detail page's SEO score to 90 and the home page's to a perfect 100. On the performance side, dynamically importing `ApplicationWizard` with `ssr: false` kept Total Blocking Time low (70–100ms) despite the wizard's heavy dependency list, since that JavaScript is no longer parsed and executed on initial page load for every visitor regardless of whether they can apply.
+
+---
+
+## Image Audit Findings
+
+**Home page hero illustration:** Converted to `next/image` with the `priority` prop and explicit width/height matching the SVG's intrinsic dimensions. This targets **LCP**, since it is the largest above-the-fold visual on the site's highest-traffic entry point — preloading it ensures the browser doesn't discover it late in the render, which would otherwise delay LCP timing. Verified in DevTools: the image is served through `/_next/image?url=...` with a responsive `imagesrcset` for 1x/2x pixel density, and preloaded via a `<link rel="preload" as="image">` tag in `<head>`.
+
+**Job listing card company logo:** Converted to `next/image`, sourced remotely from `api.dicebear.com`, with the domain added to `remotePatterns` in `next.config.ts` (not the deprecated `domains` array). No `priority` prop was applied — per the assignment guidance, logos in a list are not above the fold in aggregate. This targets **cumulative payload size and decode cost** rather than LCP directly, since `next/image` still provides automatic format conversion (WebP/AVIF) and correctly sized responses for each logo.
+
+No other image locations were found in the job detail page, dashboard, or employer pages. The favicon is excluded per Next.js file-based convention and is not rendered via a plain `<img>` tag, so it was not a candidate for `next/image`.
+
+---
+
+## Deduplication Explanation
+
+Next.js's `fetch` patch caches identical in-flight requests made within a single render pass. Calling `getJob(id)` from both `generateMetadata` and the page component results in a single network call, not two, because both call sites use the native `fetch` API with matching arguments within the same request lifecycle. If either call site bypassed `fetch` (e.g. using `axios`) or passed different arguments, this deduplication would break and two separate requests would be made.
+
+---
+
+## One Metric That Didn't Move As Expected
+
+**LCP on the job detail page** remained at 1.4s ("Needs Improvement") even after optimization, compared to the home page's 0.5s ("Good"). This is because the job detail page's largest content element (the job title/description block) depends on a server-side data fetch (`getJob(id)`) that adds latency before the LCP element can paint, unlike the home page's static, preloaded hero image which has no data dependency.
+
+**What would move it further:** This isn't purely a code-level fix — it would require infrastructure-level changes such as:
+- Caching job data at the edge (e.g. Incremental Static Regeneration or an edge cache layer) so `getJob(id)` doesn't hit a cold API/database on every request
+- Placing a CDN in front of the API to reduce round-trip latency for the data fetch itself
+- Pre-rendering popular job pages at build time via `generateStaticParams`, if listings are relatively stable, rather than fetching fresh data on every request
+
+---
+
+## Testing Verification
+
+- `npx tsc --noEmit` — zero errors
+- `npm run test:run` — all 11 tests passing (2 in `CloseJobButton.test.tsx`, 9 in `ApplicationWizard.test.tsx`)
+- Manual smoke test — home page title, job detail page title, `og:title`/`og:description` presence, `next/image` serving (hero illustration + job card logos), and the 404 fallback (`/jobs/does-not-exist` → "Job not found" UI, title falls back to layout default) were all verified directly in the browser and DevTools
+- Bundle analysis (`npm run analyze`) confirms `ApplicationWizard`'s dependencies (React Hook Form, Zod, TanStack Query) are split into separate chunks rather than merged into the main page bundle
