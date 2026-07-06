@@ -243,12 +243,26 @@ using (var scope = app.Services.CreateScope())
     SeedData.Seed(context);
 }
 
+// // ==========================================
+// // Development-Only API Documentation
+// // ==========================================
+// if (app.Environment.IsDevelopment())
+// {
+//     app.MapOpenApi();
+//     app.MapScalarApiReference();
+// }
+
 // ==========================================
-// Development-Only API Documentation
+// API Documentation
 // ==========================================
+// OpenAPI JSON must be available in all environments so the frontend's
+// openapi-typescript generator can fetch it from the deployed API, not
+// just from a local dev server.
+app.MapOpenApi();
+
 if (app.Environment.IsDevelopment())
 {
-    app.MapOpenApi();
+   
     app.MapScalarApiReference();
 }
 

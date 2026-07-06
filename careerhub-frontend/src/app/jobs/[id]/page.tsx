@@ -87,14 +87,14 @@ export default async function JobDetailPage({ params }: JobDetailPageProps) {
             </p>
             <p className="font-display font-semibold text-[var(--ink)] dark:text-[var(--ink)]">
               {job.salaryMin != null && job.salaryMax != null
-                ? `$${job.salaryMin.toLocaleString()} – $${job.salaryMax.toLocaleString()}`
+                ? `$${Number(job.salaryMin).toLocaleString()} – $${Number(job.salaryMax).toLocaleString()}`
                 : job.salaryMin != null
-                  ? `From $${job.salaryMin.toLocaleString()}`
-                  : `Up to $${job.salaryMax!.toLocaleString()}`}
+                  ? `From $${Number(job.salaryMin).toLocaleString()}`
+                  : `Up to $${Number(job.salaryMax).toLocaleString()}`}
             </p>
           </div>
         )}
-
+S
         <div
           className="mt-8 rounded-xl bg-[var(--paper)] p-6 ring-1 ring-[var(--line)]
                      dark:bg-[var(--paper)] dark:ring-[var(--line)]"
@@ -107,11 +107,13 @@ export default async function JobDetailPage({ params }: JobDetailPageProps) {
           </p>
         </div>
 
-        <p className="mt-4 text-xs text-[var(--muted-text)] dark:text-[var(--muted-text)]">
-          {active
-            ? `Applications close ${new Date(job.closingDate).toLocaleDateString("en-AU", { day: "numeric", month: "long", year: "numeric" })}`
-            : `Closed ${new Date(job.closingDate).toLocaleDateString("en-AU", { day: "numeric", month: "long", year: "numeric" })}`}
-        </p>
+       {job.closingDate && (
+          <p className="mt-4 text-xs text-[var(--muted-text)] dark:text-[var(--muted-text)]">
+            {active
+              ? `Applications close ${new Date(job.closingDate).toLocaleDateString("en-AU", { day: "numeric", month: "long", year: "numeric" })}`
+              : `Closed ${new Date(job.closingDate).toLocaleDateString("en-AU", { day: "numeric", month: "long", year: "numeric" })}`}
+          </p>
+        )}
 
         <div className="mt-10">
           {session?.user?.role === "employer" ? (
@@ -147,9 +149,9 @@ export default async function JobDetailPage({ params }: JobDetailPageProps) {
             </div>
           ) : active ? (
             // Candidate + job open — show form
-            <ApplicationWizard
-              jobId={job.id}
-              jobTitle={job.title}
+             <ApplicationWizard
+              jobId={job.id ?? id}
+              jobTitle={job.title ?? "this role"}
               userRole={session?.user?.role}
               applicantName={session?.user?.name ?? ""}
             />
