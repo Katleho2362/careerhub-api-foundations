@@ -157,7 +157,7 @@ export function ListingsTable({ jobs, stats, view, showClosedJobs }: ListingsTab
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
         {filtered.map((job) => {
           const active = isJobActive(job);
-          const count = stats.find((s) => s.jobId === job.id)?.applicationCount ?? 0;
+         const count = stats.find((s) => s.jobId === job.id)?.applicationCount ?? 0;
           return (
             <div key={job.id} className="rounded-xl border border-[var(--line)] bg-[var(--paper)] p-5">
               <div className="flex items-start justify-between gap-2">
@@ -198,7 +198,7 @@ export function ListingsTable({ jobs, stats, view, showClosedJobs }: ListingsTab
             const active = isJobActive(job);
             const count = stats.find((s) => s.jobId === job.id)?.applicationCount ?? 0;
             return (
-              <tr key={job.id} className={`border-b border-[var(--line)] last:border-0 ${i % 2 === 0 ? "bg-[var(--canvas)]" : "bg-[var(--paper)]"}`}>
+              <tr key={job.id ?? job.title} className={`border-b border-[var(--line)] last:border-0 ${i % 2 === 0 ? "bg-[var(--canvas)]" : "bg-[var(--paper)]"}`}>
                 <td className="px-4 py-3 font-medium text-[var(--ink)]">{job.title}</td>
                 <td className="px-4 py-3 text-[var(--muted-text)]">{job.companyName}</td>
                 <td className="hidden px-4 py-3 text-[var(--muted-text)] md:table-cell">{job.location}</td>
@@ -210,14 +210,21 @@ export function ListingsTable({ jobs, stats, view, showClosedJobs }: ListingsTab
                     {active ? "Open" : "Closed"}
                   </span>
                 </td>
-                <td className="px-4 py-3 text-[var(--muted-text)]">{count}</td>
-                <td className="px-4 py-3">
-                  <Link href={`/jobs/${job.id}`} className="text-[var(--amber)] underline underline-offset-2 hover:opacity-80">
-                    View →
-                  </Link>
+              <td className="px-4 py-3 space-x-3">
+                <Link href={`/jobs/${job.id ?? ""}`} className="text-[var(--amber)] underline underline-offset-2 hover:opacity-80">
+                  View →
+                </Link>
+                <Link href={`/dashboard/listings/${job.id ?? ""}/applicants`} className="text-[var(--amber)] underline underline-offset-2 hover:opacity-80">
+                  Applicants
+                </Link>
+
                 </td>
                 <td className="px-4 py-3">
-                  <CloseJobButton jobId={job.id} jobTitle={job.title} currentStatus={active ? "Open" : "Closed"} />
+                  <CloseJobButton
+                    jobId={job.id ?? ""}
+                    jobTitle={job.title ?? "Untitled listing"}
+                    currentStatus={active ? "Open" : "Closed"}
+                  />
                 </td>
               </tr>
             );
