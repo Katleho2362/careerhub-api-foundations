@@ -49,10 +49,15 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               <div className="flex items-center gap-6">
                 {session?.user && (
                   <nav className="flex items-center gap-4">
-                    {isCandidate && (
-                      <Link href="/jobs" className="font-meta text-xs uppercase text-[var(--muted-text)] transition-colors hover:text-[var(--ink)]">
-                        Jobs
-                      </Link>
+                     {isCandidate && (
+                      <>
+                        <Link href="/jobs" className="font-meta text-xs uppercase text-[var(--muted-text)] transition-colors hover:text-[var(--ink)]">
+                          Jobs
+                        </Link>
+                        <Link href="/applications" className="font-meta text-xs uppercase text-[var(--muted-text)] transition-colors hover:text-[var(--ink)]">
+                          My Applications
+                        </Link>
+                      </>
                     )}
                     {isEmployer && (
                       <Link href="/dashboard/listings" className="font-meta text-xs uppercase text-[var(--muted-text)] transition-colors hover:text-[var(--ink)]">
