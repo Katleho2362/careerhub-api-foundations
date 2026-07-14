@@ -74,6 +74,15 @@ builder.Host.UseSerilog();
 // ==========================================
 // CORS Policy
 // ==========================================
+// "FrontendPolicy" — named origins for the real deployed frontends
+// (React on Vercel, local React dev server).
+//
+// "FlutterDevPolicy" — Flutter web's dev server picks a random port
+// on every `flutter run`, so pinning a single origin isn't practical
+// during development. This policy allows any origin but does NOT
+// allow credentials, and is only ever applied when
+// app.Environment.IsDevelopment() is true — see below. It is never
+// used in staging or production.
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("FrontendPolicy", policy =>
@@ -86,6 +95,17 @@ builder.Services.AddCors(options =>
             .AllowAnyMethod()
             .AllowCredentials()
             .WithExposedHeaders("X-Total-Count");
+    });
+
+    options.AddPolicy("FlutterDevPolicy", policy =>
+    {
+        policy
+            .SetIsOriginAllowed(_ => true) // dev only — any localhost port
+            .AllowAnyHeader()
+            .AllowAnyMethod();
+        // Deliberately no AllowCredentials() here: browsers reject
+        // wildcard-origin + credentials combinations anyway, and this
+        // API doesn't need cookies from the Flutter dev client.
     });
 });
 
@@ -279,8 +299,17 @@ app.UseStatusCodePages();
 // Logs all HTTP requests using Serilog
 app.UseSerilogRequestLogging();
 
-// Applies the named CORS policy
-app.UseCors("FrontendPolicy");
+// Applies CORS — permissive "any localhost port" policy in development
+// (so Flutter web's randomly-assigned dev port always works), the
+// strict named-origin policy everywhere else.
+if (app.Environment.IsDevelopment())
+{
+    app.UseCors("FlutterDevPolicy");
+}
+else
+{
+    app.UseCors("FrontendPolicy");
+}
 
 // Enforces rate limiting policies
 app.UseRateLimiter();
